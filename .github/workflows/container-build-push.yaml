@@ -1,0 +1,120 @@
+name: Build Container And Push To Registry
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        type: string
+        description: The name of the container image
+        required: true
+      image_repository:
+        type: string
+        description: The image repository
+        required: true
+      image_version:
+        type: string
+        description: The version of the container image
+        required: false
+        default: 'latest'
+      containerfile:
+        type: string
+        description: The container build recipe
+        required: false
+        default: 'Containerfile'
+      container_build_context:
+        type: string
+        description: The container build context
+        required: false
+        default: '.'
+      image_tags:
+        type: string
+        description: An image tag
+        required: false
+        default: 'latest'
+      platforms:
+        type: string
+        description: The target platforms to build for
+        required: false
+        default: linux/amd64, linux/arm64
+      container_push_to_registry:
+        type: boolean
+        description: If to push to a registry or not
+        required: false
+        default: false
+      container_registry:
+        type: string
+        description: The container registry to push to
+        required: false
+        default: 'ghcr'
+      container_build_cache_path:
+        type: string
+        description: The path where to store the build cache
+        required: false
+        default: '/tmp/'
+
+jobs:
+  build-and-push-container:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Cache container layers
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.container_build_cache_path }}
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Extract metadata (tags, labels)
+      id: extract-metadata
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ inputs.image_name }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: eu-central-1
+        role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+        role-session-name: ${{ vars.AWS_ROLE_SESSION_NAME }}
+      if: inputs.container_registry == 'ecr'
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      if: inputs.container_registry == 'ecr'
+
+    - name: Login to GitHub Container Registry
+      id: login-ghcr
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      if: inputs.container_registry == 'ghcr'
+
+    - name: Build container and optionally push to registry
+      id: container-build-push
+      uses: docker/build-push-action@v6
+      with:
+        platforms: ${{ inputs.platforms }}
+        file: ${{ inputs.containerfile }}
+        context: ${{ inputs.container_build_context }}
+        #tags: ${{ steps.meta.outputs.tags }},ghcr.io/${{ inputs.image_repository }}:${{ inputs.image_version }}
+        tags: ${{ inputs.image_tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=local,src=${{ inputs.container_build_cache_path }}
+        cache-to: type=local,dest=${{ inputs.container_build_cache_path }}
+        provenance: false
+        push: ${{ inputs.container_push_to_registry }}
+
+    - name: Image digest
+      run: echo ${{ steps.container_build.outputs.digest }}
