@@ -3,49 +3,49 @@ name: Build Container And Push To Registry
 on:
   workflow_call:
     inputs:
+      prefix:
+        type: string
+        description: A custom prefix
+        required: false
       image_name:
         type: string
-        description: The name of the container image
+        description: A name for the resulting image
         required: true
-      image_repository:
+      image_tag:
         type: string
-        description: The image repository
-        required: true
-      image_version:
+        description: An optional image tag
+        default: ''
+      aws_region:
         type: string
-        description: The version of the container image
         required: false
-        default: 'latest'
-      containerfile:
+        default: eu-central-1
+      aws_arn_role_to_assume:
         type: string
-        description: The container build recipe
         required: false
-        default: 'Containerfile'
-      container_build_context:
-        type: string
-        description: The container build context
-        required: false
-        default: '.'
-      image_tags:
-        type: string
-        description: An image tag
-        required: false
-        default: 'latest'
       image_platforms:
         type: string
         description: The target platforms to build for
         required: false
-        default: linux/amd64, linux/arm64
+        default: linux/amd64
+      container_file:
+        type: string
+        description: The build recipe
+        required: false
+        default: Dockerfile
+      container_build_context:
+        type: string
+        description: The path to the Containerfile
+        required: false
       container_push_to_registry:
         type: boolean
-        description: If to push to a registry or not
-        required: false
-        default: false
+        description: If to push to registry
+        required: true
+        default: true
       container_registry:
         type: string
-        description: The container registry to push to
+        description: The container registry to push to, one of ghcr / ecr
         required: false
-        default: 'ghcr'
+        default: 'ecr'
       container_build_cache_path:
         type: string
         description: The path where to store the build cache
@@ -77,36 +77,15 @@ jobs:
       id: short-sha
       run: echo "short_sha=`git rev-parse --short HEAD`" >> $GITHUB_OUTPUT
 
-    - name: Get registry/repo
-      id: get-registry-ecr
-      run: echo "repository=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image_name }}" >> $GITHUB_ENV
-      if: inputs.container_registry == 'ecr'
-
-    - name: Get registry/repo
-      id: get-registry-ghcr
-      run: echo "repository=ghcr.io/${{ inputs.image_repository }}" >> $GITHUB_ENV
-      if: inputs.container_registry == 'ghcr'
-
-    - name: Extract metadata (tags, labels)
-      id: extract-metadata
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.repository }}/${{ inputs.image_name }}
-        tags: |
-          type=raw,value=latest,enable=true
-          type=sha,enable=true,priority=100,prefix=sha-,suffix=,format=long
-          type=raw,enable=true,priority=200,prefix=,suffix=,value=${{ format(github.ref_name, '/', '-') }}_${{ steps.short-sha.outputs.short_sha }}_${{ github.run_number }}
-
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-region: eu-central-1
-        role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-        role-session-name: ${{ vars.AWS_ROLE_SESSION_NAME }}
+        aws-region: ${{ inputs.aws_region }}
+        role-to-assume: ${{ inputs.aws_arn_role_to_assume }}
       if: inputs.container_registry == 'ecr'
 
     - name: Login to Amazon ECR
-      id: login-ecr
+      id: ecr-login
       uses: aws-actions/amazon-ecr-login@v2
       if: inputs.container_registry == 'ecr'
 
@@ -119,19 +98,78 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
       if: inputs.container_registry == 'ghcr'
 
+    - name: Get registry/repo path
+      id: get-registry-ecr
+      run: echo "repository=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image_name }}" >> $GITHUB_ENV
+      if: inputs.container_registry == 'ecr'
+
+    - name: Get registry/repo path
+      id: get-registry-ghcr
+      run: echo "repository=${{ inputs.image_repository }}/${{ inputs.image_name }}" >> $GITHUB_ENV
+      if: inputs.container_registry == 'ghcr'
+
+    - name: Create tag from tag from github.ref_name
+      id: ref-name
+      run: |
+        DEFAULT_TAG=${{ github.ref_name }}
+        echo "DEFAULT_TAG=${DEFAULT_TAG////-}_${{ steps.short-sha.outputs.short_sha }}_${{ github.run_number }}" >> $GITHUB_ENV
+
+    - name: Extract metadata (tags, labels)
+      id: extract-metadata
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.repository }}
+        tags: |
+          type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag == '' && true || false }}
+          type=raw,enable=true,priority=200,prefix=,suffix=,value=${{ env.DEFAULT_TAG }}
+          type=raw,value=latest,enable=true
+          type=sha,enable=true,priority=100,prefix=sha-,suffix=,format=long
+
     - name: Build container and optionally push to registry
       id: container-build-push
       uses: docker/build-push-action@v6
       with:
         platforms: ${{ inputs.image_platforms }}
-        file: ${{ inputs.containerfile }}
+        file: ${{ inputs.container_file }}
         context: ${{ inputs.container_build_context }}
         tags: ${{ steps.extract-metadata.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
+        labels: ${{ steps.extract-metadata.outputs.labels }}
         cache-from: type=local,src=${{ inputs.container_build_cache_path }}
         cache-to: type=local,dest=${{ inputs.container_build_cache_path }}
         provenance: false
         push: ${{ inputs.container_push_to_registry }}
+
+    - name: Run trivy repo vulnerability scan
+      uses: aquasecurity/trivy-action@master
+      env:
+        # Use AWS ECR repo for the trivy-db image, as GitHub's Container
+        # Registry (ghcr.io) is returning a TOOMANYREQUESTS error.
+        # Ref: https://github.com/aquasecurity/trivy-action/issues/389
+        TRIVY_DB_REPOSITORY: 'public.ecr.aws/aquasecurity/trivy-db:2'
+        TRIVY_JAVA_DB_REPOSITORY: 'public.ecr.aws/aquasecurity/trivy-java-db:1'
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        exit-code: '0'
+        ignore-unfixed: true
+        severity: 'CRITICAL,HIGH'
+
+    - name: Run trivy image vulnerability scan
+      uses: aquasecurity/trivy-action@master
+      env:
+        TAG: ${{ env.DEFAULT_TAG }}
+        # Use AWS ECR repo for the trivy-db image, as GitHub's Container
+        # Registry (ghcr.io) is returning a TOOMANYREQUESTS error.
+        # Ref: https://github.com/aquasecurity/trivy-action/issues/389
+        TRIVY_DB_REPOSITORY: 'public.ecr.aws/aquasecurity/trivy-db:2'
+        TRIVY_JAVA_DB_REPOSITORY: 'public.ecr.aws/aquasecurity/trivy-java-db:1'
+      with:
+        image-ref: ${{ env.repository }}:${{ env.DEFAULT_TAG }}
+        exit-code: '0'
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL,HIGH'
+      if: inputs.container_push_to_registry
 
     - name: Image digest
       run: echo ${{ steps.container_build.outputs.digest }}
