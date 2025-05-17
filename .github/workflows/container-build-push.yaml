@@ -15,6 +15,10 @@ on:
         type: string
         description: An optional image tag
         default: ''
+      image_repository:
+        type: string
+        description: The image repository
+        required: false
       aws_region:
         type: string
         required: false
