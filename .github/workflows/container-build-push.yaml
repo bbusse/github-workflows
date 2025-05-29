@@ -1,3 +1,4 @@
+---
 name: Build Container And Push To Registry
 
 on:
@@ -31,15 +32,16 @@ on:
         description: The target platforms to build for
         required: false
         default: linux/amd64
+      # We set a default in an action
       container_file:
         type: string
         description: The build recipe
         required: false
-        default: Dockerfile
       container_build_context:
         type: string
         description: The path to the Containerfile
         required: false
+        default: "."
       container_push_to_registry:
         type: boolean
         description: If to push to registry
@@ -129,12 +131,26 @@ jobs:
           type=raw,value=latest,enable=true
           type=sha,enable=true,priority=100,prefix=sha-,suffix=,format=long
 
+    - run: ls -l
+
+    - name: Determine container file
+      id: container_file
+      run: |
+        if [ -n "${{ inputs.container_file }}" ]; then
+          CONTAINER_FILE="${{ inputs.container_file }}"
+        elif [ -f "Containerfile" ]; then
+          CONTAINER_FILE="Containerfile"
+        else
+          CONTAINER_FILE="Dockerfile"
+        fi
+        echo "container_file=$CONTAINER_FILE" >> $GITHUB_OUTPUT
+
     - name: Build container and optionally push to registry
       id: container-build-push
       uses: docker/build-push-action@v6
       with:
         platforms: ${{ inputs.image_platforms }}
-        file: ${{ inputs.container_file }}
+        file: ${{ steps.container_file.outputs.container_file }}
         context: ${{ inputs.container_build_context }}
         tags: ${{ steps.extract-metadata.outputs.tags }}
         labels: ${{ steps.extract-metadata.outputs.labels }}
