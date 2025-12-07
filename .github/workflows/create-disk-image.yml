@@ -1,0 +1,55 @@
+name: Create Disk Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Target to create (e.g., gentoo)
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      target:
+        description: Target to create (e.g., gentoo)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  create_image:
+    name: Create image for ${{ inputs.target || github.event.inputs.target }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggressive cleanup
+        run: |
+          sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift \
+                      /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android \
+                      /usr/local/share/chromium /opt/microsoft /opt/google \
+                      /opt/az /usr/local/share/powershell /opt/hostedtoolcache || true
+          docker system prune -af || true
+          docker builder prune -af || true
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Checkout image-builder
+        uses: actions/checkout@v6
+        with:
+          repository: OpsBoost/image-builder
+          ref: dev
+          path: image-builder
+
+      - name: Build
+        run: |
+          ls -al
+          sudo ./image-builder/image-builder install
+          image-builder create ${{ inputs.target || github.event.inputs.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: disk-image-${{ inputs.target || github.event.inputs.target }}
+          path: disk-image-*
