@@ -1,0 +1,71 @@
+name: Extract and release build artifact
+
+on:
+  workflow_call:
+    inputs:
+      filename:
+        description: Artifact filename to extract (e.g., gentoo-stage4-containeros-amd64.tar.xz)
+        required: true
+        type: string
+      image:
+        description: Full container image reference (e.g., ghcr.io/org/image:tag)
+        required: true
+        type: string
+      release:
+        description: Create a GitHub Release and attach the artifact
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: Tag name to use for the Release (e.g., v1.0.0)
+        required: false
+        type: string
+      release_name:
+        description: Release title (defaults to tag)
+        required: false
+        type: string
+    secrets:
+      GH_TOKEN:
+        description: Token for checking statuses
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  extract-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for container release
+        uses: lewagon/wait-on-check-action@v1.3.1
+        with:
+          ref: ${{ github.ref }}
+          check-regexp: Build*
+          repo-token: ${{ secrets.GH_TOKEN }}
+          wait-interval: 10
+
+      - name: Extract build artifact from build container
+        uses: bbusse/actions-docker-extract@latest
+        id: extract
+        with:
+          image: ${{ inputs.image }}
+          path: ${{ inputs.filename }}
+          platform: linux/amd64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ inputs.filename }}
+          path: ${{ inputs.filename }}
+
+      - name: Create GitHub Release (optional)
+        if: ${{ inputs.release == true }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: ${{ inputs.release_name || inputs.release_tag || github.ref_name }}
+          draft: false
+          prerelease: false
+          files: ${{ inputs.filename }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
