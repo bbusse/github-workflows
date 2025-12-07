@@ -1,0 +1,40 @@
+name: Build NanoBSD
+
+on:
+  workflow_call:
+    inputs:
+      image_builder_ref:
+        description: Branch/tag for OpsBoost/image-builder
+        required: false
+        default: dev
+        type: string
+      mem:
+        description: Memory for VM in MB
+        required: false
+        default: 4096
+        type: number
+    secrets:
+      GHCR_TOKEN:
+        description: Optional token for registry operations inside the VM
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-nanobsd:
+    runs-on: ubuntu-latest
+    name: Build NanoBSD
+    steps:
+      - name: Build NanoBSD
+        uses: vmactions/freebsd-vm@v1
+        id: build
+        with:
+          mem: ${{ inputs.mem }}
+          usesh: true
+          sync: sshfs
+          run: |
+            pkg install -y bash git sudo
+            git clone -b "${{ inputs.image_builder_ref }}" --depth 1 https://github.com/opsboost/image-builder
+            sudo ./image-builder/image-builder install
+            sudo image-builder build nanobsd

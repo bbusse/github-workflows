@@ -1,0 +1,44 @@
+name: Build FreeBSD
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        description: FreeBSD release version (e.g., 14.1, 15.0)
+        required: true
+        type: string
+      image_builder_ref:
+        description: Branch/tag for OpsBoost/image-builder
+        required: false
+        default: dev
+        type: string
+    secrets:
+      GHCR_TOKEN:
+        description: Optional token for registry operations inside the VM
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-freebsd:
+    runs-on: ubuntu-latest
+    name: Build FreeBSD ${{ inputs.release }}
+    steps:
+      - name: Free disk space
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/kou/arrow/e49d8ae15583ceff03237571569099a6ad62be32/ci/scripts/util_free_space.sh | bash
+
+      - name: Build FreeBSD in VM
+        uses: vmactions/freebsd-vm@v1
+        id: build
+        with:
+          release: "${{ inputs.release }}"
+          usesh: true
+          sync: sshfs
+          run: |
+            pkg install -y bash git sudo
+            cd /tmp
+            git clone --depth 1 -b "${{ inputs.image_builder_ref }}" https://github.com/opsboost/image-builder
+            sudo ./image-builder/image-builder install
+            sudo image-builder build freebsd
