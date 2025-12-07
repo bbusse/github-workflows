@@ -1,0 +1,49 @@
+---
+name: Release
+
+on:
+  workflow_call:
+    inputs:
+      check_regexp:
+        description: Check name/regexp to wait for
+        required: false
+        default: build-linux-kernel*
+        type: string
+      automatic_release_tag:
+        description: Release tag to create
+        required: false
+        default: latest
+        type: string
+      files_glob:
+        description: Files glob to attach to release
+        required: false
+        default: /output/bzImage-*
+        type: string
+    secrets:
+      REPO_TOKEN:
+        description: Token for repository operations (fallback to GITHUB_TOKEN)
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Wait for build
+      uses: lewagon/wait-on-check-action@v1.3.1
+      with:
+        ref: ${{ github.ref }}
+        check-regexp: ${{ inputs.check_regexp }}
+        repo-token: ${{ secrets.REPO_TOKEN || secrets.GITHUB_TOKEN }}
+        wait-interval: 10
+
+    - name: Release
+      uses: "marvinpinto/action-automatic-releases@latest"
+      with:
+        repo_token: "${{ secrets.REPO_TOKEN || secrets.GITHUB_TOKEN }}"
+        prerelease: false
+        automatic_release_tag: "${{ inputs.automatic_release_tag }}"
+        files: |
+          ${{ inputs.files_glob }}
