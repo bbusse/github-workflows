@@ -67,4 +67,3 @@ jobs:
         with:
           name: disk-image-${{ steps.resolve.outputs.target }}
           path: ${{ steps.resolve.outputs.target }}.raw
-.raw
