@@ -1,0 +1,38 @@
+---
+name: ShellCheck
+on:
+  workflow_call:
+    inputs:
+      shellcheck_opts:
+        description: "Flags passed to ShellCheck via SHELLCHECK_OPTS"
+        required: false
+        type: string
+        default: "-a"
+      checkout:
+        description: "Whether to checkout the repository contents"
+        required: false
+        type: boolean
+        default: true
+      fetch_depth:
+        description: "actions/checkout fetch-depth"
+        required: false
+        type: number
+        default: 1
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: Run ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        if: inputs.checkout == true
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        env:
+          SHELLCHECK_OPTS: ${{ inputs.shellcheck_opts }}
