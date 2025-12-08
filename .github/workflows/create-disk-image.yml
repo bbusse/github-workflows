@@ -66,4 +66,5 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: disk-image-${{ steps.resolve.outputs.target }}
-          path: disk-image-*
+          path: ${{ steps.resolve.outputs.target }}.raw
+.raw
