@@ -13,6 +13,10 @@ on:
         description: Target to create (e.g., gentoo)
         required: true
         type: string
+      wait-for-job:
+        description: Regexp for job to wait for
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +26,13 @@ jobs:
     name: Create image
     runs-on: ubuntu-latest
     steps:
+      - name: Wait for job
+        uses: lewagon/wait-on-check-action@v1.3.1
+        with:
+          ref: ${{ github.ref }}
+          check-regexp: ${{ inputs.wait-for-job }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
       - name: Resolve target input
         id: resolve
         shell: bash
