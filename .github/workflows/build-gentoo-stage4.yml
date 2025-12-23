@@ -25,6 +25,11 @@ on:
         required: false
         default: latest
         type: string
+      use_arm_runner:
+        description: Use ARM runner (ubuntu-24.04-arm) instead of ubuntu-latest
+        required: false
+        default: false
+        type: boolean
     secrets:
       GHCR_TOKEN:
         description: Token for pushing to container registry
@@ -37,7 +42,7 @@ permissions:
 jobs:
   build_stage4:
     name: Build Stage4 ${{ inputs.flavour }} (${{ inputs.arch }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
       - name: Aggressive cleanup
         run: |
