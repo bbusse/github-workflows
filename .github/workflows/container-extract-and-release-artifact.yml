@@ -33,6 +33,11 @@ on:
         required: false
         default: false
         type: boolean
+      platform:
+        description: Platform for container extraction (e.g., linux/amd64)
+        required: false
+        default: linux/amd64
+        type: string
     secrets:
       GH_TOKEN:
         description: Token for checking statuses
@@ -59,7 +64,7 @@ jobs:
         with:
           image: ${{ inputs.image }}
           path: ${{ inputs.filename }}
-          platform: linux/amd64
+          platform: ${{ inputs.platform }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v5
