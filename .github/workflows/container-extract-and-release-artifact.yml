@@ -28,6 +28,11 @@ on:
         description: Regexp for job to wait for
         required: true
         type: string
+      use_arm_runner:
+        description: Use ARM runner
+        required: false
+        default: false
+        type: boolean
     secrets:
       GH_TOKEN:
         description: Token for checking statuses
@@ -38,7 +43,7 @@ permissions:
 
 jobs:
   extract-artifacts:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
       - name: Wait for container release
         uses: lewagon/wait-on-check-action@v1.3.1
