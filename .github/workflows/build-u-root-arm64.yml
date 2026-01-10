@@ -1,0 +1,79 @@
+name: Build u-root arm64
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        description: Target architecture (e.g., amd64)
+        required: true
+        type: string
+      image_name:
+        description: Base image name (default gentoo-stage4)
+        required: false
+        default: gentoo-stage4
+        type: string
+      registry:
+        description: Container registry (e.g., ghcr.io/bbusse)
+        required: true
+        type: string
+      tag:
+        description: Image tag to push (default latest)
+        required: false
+        default: latest
+        type: string
+      use_arm_runner:
+        description: Use ARM runner (ubuntu-24.04-arm) instead of ubuntu-latest
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      GHCR_TOKEN:
+        description: Token for pushing to container registry
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build_stage4:
+    name: Build u-root (${{ inputs.arch }})
+    runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+      - name: Aggressive cleanup
+        run: |
+          sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift \
+                      /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android \
+                      /usr/local/share/chromium /opt/microsoft /opt/google \
+                      /opt/az /usr/local/share/powershell /opt/hostedtoolcache || true
+          docker system prune -af || true
+          docker builder prune -af || true
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Checkout image-builder
+        uses: actions/checkout@v6
+        with:
+          repository: OpsBoost/image-builder
+          ref: dev
+          path: image-builder
+
+      - name: Build
+        env:
+          IMAGE_LOCAL: ${{ inputs.image_name }}-${{ inputs.flavour }}-${{ inputs.arch }}
+          IMAGE_REMOTE: ${{ inputs.registry }}/${{ inputs.image_name }}-${{ inputs.flavour }}-${{ inputs.arch }}:${{ inputs.tag }}
+        run: |
+          ls -al
+          sudo ./image-builder/image-builder install
+          image-builder build u-root ${{ inputs.arch }}
+          echo "${{ secrets.GHCR_TOKEN }}" | podman login ${{ inputs.registry }} -u $GITHUB_ACTOR --password-stdin
+          podman tag "$IMAGE_LOCAL" "$IMAGE_REMOTE"
+          podman push "$IMAGE_REMOTE"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: gentoo-stage4-${{ inputs.flavour }}-${{ inputs.arch }}
+          path: gentoo-stage4-*
