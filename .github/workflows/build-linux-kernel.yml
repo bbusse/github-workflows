@@ -25,12 +25,7 @@ permissions:
   packages: write
 
 jobs:
-  build-linux-kernel-matrix:
-    if: github.event_name != 'workflow_call'
-    strategy:
-      matrix:
-        flavour: ["x230", "pine64", "rockpro64"]
-
+  build-linux-kernel:
     runs-on: ubuntu-latest
     steps:
       - name: Aggressive cleanup
@@ -57,38 +52,6 @@ jobs:
         run: |
           sudo ./image-builder/image-builder install
           BUILD_USE_CONTAINER=1 \
-          image-builder build linux-kernel ${{ matrix.flavour }}
+          image-builder build linux-kernel ${{ inputs.config }}
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u $GITHUB_ACTOR --password-stdin
-          podman push ghcr.io/bbusse/linux-kernel-build-${{ matrix.flavour }}:latest
-
-  build-linux-kernel-single:
-    if: github.event_name == 'workflow_call'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Aggressive cleanup
-        run: |
-          sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift \
-                      /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android \
-                      /usr/local/share/chromium /opt/microsoft /opt/google \
-                      /opt/az /usr/local/share/powershell /opt/hostedtoolcache || true
-          docker system prune -af || true
-          docker builder prune -af || true
-          df -h
-
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Checkout image-builder
-        uses: actions/checkout@v6
-        with:
-          repository: 'OpsBoost/image-builder'
-          ref: 'dev'
-          path: 'image-builder'
-
-      - name: Build Linux Kernel
-        run: |
-          sudo ./image-builder/image-builder install
-          BUILD_USE_CONTAINER=1 \
-          image-builder build linux-kernel ${{ inputs.flavour }}
-          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u $GITHUB_ACTOR --password-stdin
-          podman push ghcr.io/bbusse/linux-kernel-build-${{ inputs.flavour }}:latest
+          podman push ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
