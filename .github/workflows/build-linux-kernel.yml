@@ -15,8 +15,8 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
-      flavour:
-        description: Target kernel flavour (e.g., x230)
+      config:
+        description: Target kernel config (e.g., kernel-config-x230)
         required: true
         type: string
 
