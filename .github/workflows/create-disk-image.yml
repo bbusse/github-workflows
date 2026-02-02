@@ -1,12 +1,6 @@
 name: Create Disk Image
 
 on:
-  workflow_dispatch:
-    inputs:
-      target:
-        description: Target to create (e.g., gentoo)
-        required: true
-        type: string
   workflow_call:
     inputs:
       target:

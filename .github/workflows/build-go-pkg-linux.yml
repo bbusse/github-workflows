@@ -1,15 +1,6 @@
 name: Linux Go Package Build
 
 on:
-  push:
-    paths-ignore:
-      - '**.md'
-    branches:
-      - '**'
-  pull_request:
-    paths-ignore:
-      - '**.md'
-  workflow_dispatch:
   workflow_call:
     inputs:
       artifact_name:
