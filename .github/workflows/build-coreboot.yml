@@ -1,0 +1,55 @@
+---
+name: Build Linux Kernel
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+    branches:
+      - '**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+    branches:
+      - '**'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      config:
+        description: Target device config (e.g., coreboot-config-x230)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-linux-kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggressive cleanup
+        run: |
+          sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift \
+                      /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android \
+                      /usr/local/share/chromium /opt/microsoft /opt/google \
+                      /opt/az /usr/local/share/powershell /opt/hostedtoolcache || true
+          docker system prune -af || true
+          docker builder prune -af || true
+          df -h
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Checkout image-builder
+        uses: actions/checkout@v6
+        with:
+          repository: 'OpsBoost/image-builder'
+          ref: 'dev'
+          path: 'image-builder'
+
+      - name: Build coreboot
+        run: |
+          sudo ./image-builder/image-builder install
+          BUILD_USE_CONTAINER=1 \
+          image-builder build coreboot ${{ inputs.config }}
