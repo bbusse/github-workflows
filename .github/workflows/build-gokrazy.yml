@@ -1,0 +1,63 @@
+name: Build Gokrazy Disk Image
+on:
+
+
+  workflow_call:
+    inputs:
+      image_name:
+        description: "Name of the disk image file to upload."
+        required: false
+        default: "gokrazy-virtual.img"
+        type: string
+
+  workflow_dispatch:
+    inputs:
+      image_name:
+        description: "Name of the disk image file to upload."
+        required: false
+        default: "gokrazy-virtual.img"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout gokrazy repo
+        uses: actions/checkout@v4
+        with:
+          repository: gokrazy/gokrazy
+          path: gokrazy
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+
+      - name: Ensure all files were formatted as per gofmt
+        run: |
+          cd gokrazy
+          [ "$(gofmt -l $(find . -name '*.go') 2>&1)" = "" ]
+
+      - name: install gok CLI
+        run: |
+          cd gokrazy
+          GOPROXY=direct go install github.com/gokrazy/tools/cmd/gok@main
+
+      - name: install qemu
+        run: sudo apt update && sudo apt-get install qemu-system-x86
+
+      - name: run tests
+        run: |
+          cd gokrazy
+          go test -v ./...
+
+      - name: generate gokrazy disk image
+        run: |
+          cd gokrazy
+          export PATH=$PATH:$(go env GOPATH)/bin
+          gok new
+          GOARCH=amd64 gok -i virtual overwrite --full ${{ inputs.image_name }} --target_storage_bytes 4294967296
+
+      - name: Upload disk image
+        uses: actions/upload-artifact@v4
+        with:
+          name: gokrazy-disk-image
+          path: gokrazy/${{ inputs.image_name }}
