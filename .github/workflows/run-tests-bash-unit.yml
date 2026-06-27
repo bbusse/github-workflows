@@ -8,6 +8,11 @@ on:
         required: false
         default: .
         type: string
+      enabled:
+        description: Enable running bash_unit tests
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -21,6 +26,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install system dependencies
+        if: inputs.enabled == true
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -32,23 +38,32 @@ jobs:
             fonts-dejavu-core
 
       - name: Install Go
+        if: inputs.enabled == true
         uses: actions/setup-go@v5
         with:
           go-version: stable
 
       - name: Install textimg
+        if: inputs.enabled == true
         run: go install github.com/jiro4989/textimg/v3@latest
 
       - name: Provide default stream font path expected by klue
+        if: inputs.enabled == true
         run: |
           sudo mkdir -p /System/Library/Fonts
           sudo ln -sf /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf /System/Library/Fonts/Menlo.ttc
 
       - name: Install bash_unit
+        if: inputs.enabled == true
         run: |
           git clone --depth 1 https://github.com/pgrange/bash_unit.git /tmp/bash_unit
 
+      - name: Tests disabled
+        if: inputs.enabled != true
+        run: echo "bash_unit tests are disabled"
+
       - name: Run bash_unit tests
+        if: inputs.enabled == true
         working-directory: ${{ inputs.working_directory }}
         run: |
           echo "Using TERM=${TERM}"
