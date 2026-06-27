@@ -15,6 +15,8 @@ permissions:
 jobs:
   test-bash-unit:
     runs-on: ubuntu-latest
+    env:
+      TERM: xterm-256color
     steps:
       - uses: actions/checkout@v4
 
@@ -49,5 +51,6 @@ jobs:
       - name: Run bash_unit tests
         working-directory: ${{ inputs.working_directory }}
         run: |
+          echo "Using TERM=${TERM}"
           /tmp/bash_unit/bash_unit tests/test_klue.sh
           /tmp/bash_unit/bash_unit tests/test_no_copy_mode.sh
