@@ -1,0 +1,53 @@
+name: Run tests bash unit
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Directory where klue project root is located
+        required: false
+        default: .
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test-bash-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            tmux \
+            curl \
+            lsof \
+            python3 \
+            jq \
+            fonts-dejavu-core
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install textimg
+        run: go install github.com/jiro4989/textimg/v3@latest
+
+      - name: Provide default stream font path expected by klue
+        run: |
+          sudo mkdir -p /System/Library/Fonts
+          sudo ln -sf /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf /System/Library/Fonts/Menlo.ttc
+
+      - name: Install bash_unit
+        run: |
+          git clone --depth 1 https://github.com/pgrange/bash_unit.git /tmp/bash_unit
+
+      - name: Run bash_unit tests
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          /tmp/bash_unit/bash_unit tests/test_klue.sh
+          /tmp/bash_unit/bash_unit tests/test_no_copy_mode.sh
