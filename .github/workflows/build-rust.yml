@@ -1,0 +1,54 @@
+name: Rust Build macOS arm64
+
+on:
+  workflow_call:
+    inputs:
+      binary_name:
+        description: Rust binary name to build
+        required: true
+        type: string
+      artifact_name:
+        description: Artifact name to upload
+        required: true
+        type: string
+      target:
+        description: Rust target triple
+        required: false
+        default: aarch64-apple-darwin
+        type: string
+      working_directory:
+        description: Directory where Cargo.toml is located
+        required: false
+        default: .
+        type: string
+      rust_toolchain:
+        description: Rust toolchain channel/version
+        required: false
+        default: stable
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos-arm64:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+          targets: ${{ inputs.target }}
+
+      - name: Build release binary
+        working-directory: ${{ inputs.working_directory }}
+        run: cargo build --release --locked --target "${{ inputs.target }}" --bin "${{ inputs.binary_name }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.working_directory }}/target/${{ inputs.target }}/release/${{ inputs.binary_name }}

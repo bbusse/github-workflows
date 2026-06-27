@@ -1,0 +1,45 @@
+name: Rust Binary Release
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: Uploaded artifact name to download
+        required: true
+        type: string
+      binary_name:
+        description: Binary filename inside the artifact
+        required: true
+        type: string
+      release_tag:
+        description: Git tag name to publish/update
+        required: false
+        default: latest
+        type: string
+      release_name:
+        description: Human-readable release title
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ./release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_name || inputs.release_tag }}
+          files: ./release/${{ inputs.binary_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
