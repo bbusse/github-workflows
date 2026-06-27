@@ -1,4 +1,4 @@
-name: Rust Build macOS arm64
+name: Rust Build
 
 on:
   workflow_call:
@@ -8,13 +8,8 @@ on:
         required: true
         type: string
       artifact_name:
-        description: Artifact name to upload
+        description: Artifact name prefix to upload
         required: true
-        type: string
-      target:
-        description: Rust target triple
-        required: false
-        default: aarch64-apple-darwin
         type: string
       working_directory:
         description: Directory where Cargo.toml is located
@@ -33,6 +28,9 @@ permissions:
 jobs:
   build-macos-arm64:
     runs-on: macos-latest
+    env:
+      TARGET: aarch64-apple-darwin
+      ARTIFACT_SUFFIX: macos-arm64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,14 +39,89 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ inputs.rust_toolchain }}
-          targets: ${{ inputs.target }}
+          targets: ${{ env.TARGET }}
 
       - name: Build release binary
         working-directory: ${{ inputs.working_directory }}
-        run: cargo build --release --locked --target "${{ inputs.target }}" --bin "${{ inputs.binary_name }}"
+        run: cargo build --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
+
+      - name: Stage artifact
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          mkdir -p dist
+          cp "target/${{ env.TARGET }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+          chmod +x "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.artifact_name }}
-          path: ${{ inputs.working_directory }}/target/${{ inputs.target }}/release/${{ inputs.binary_name }}
+          name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}
+          path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}
+
+  build-linux-amd64:
+    runs-on: ubuntu-latest
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+      ARTIFACT_SUFFIX: linux-amd64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+          targets: ${{ env.TARGET }}
+
+      - name: Build release binary
+        working-directory: ${{ inputs.working_directory }}
+        run: cargo build --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
+
+      - name: Stage artifact
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          mkdir -p dist
+          cp "target/${{ env.TARGET }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+          chmod +x "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}
+          path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}
+
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+    env:
+      TARGET: aarch64-unknown-linux-gnu
+      ARTIFACT_SUFFIX: linux-arm64
+      CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install cross toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+          targets: ${{ env.TARGET }}
+
+      - name: Build release binary
+        working-directory: ${{ inputs.working_directory }}
+        run: cargo build --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
+
+      - name: Stage artifact
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          mkdir -p dist
+          cp "target/${{ env.TARGET }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+          chmod +x "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}
+          path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}

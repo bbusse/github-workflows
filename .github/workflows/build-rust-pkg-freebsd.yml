@@ -1,0 +1,50 @@
+name: FreeBSD Rust Package Build
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: Base name for the output archive
+        required: true
+        type: string
+      binary_name:
+        description: Rust binary name passed to cargo --bin
+        required: true
+        type: string
+      working_directory:
+        description: Directory containing Cargo.toml
+        required: false
+        default: .
+        type: string
+
+jobs:
+  build-freebsd:
+    runs-on: ubuntu-latest
+    name: FreeBSD Rust Build
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: FreeBSD Rust Build
+        uses: vmactions/freebsd-vm@v1.3.0
+        id: build
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y rust
+
+          run: |
+            freebsd-version
+            pwd
+            ls -lah
+            cd "${{ inputs.working_directory }}"
+            cargo build --release --locked --bin "${{ inputs.binary_name }}"
+            cp "target/release/${{ inputs.binary_name }}" "${{ inputs.artifact_name }}"
+            tar -cJvf "${{ inputs.artifact_name }}-freebsd-amd64-latest.tar.xz" "${{ inputs.artifact_name }}"
+            ls -lah
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}-freebsd-amd64-latest.tar.xz
+          path: ${{ inputs.working_directory }}/${{ inputs.artifact_name }}-freebsd-amd64-latest.tar.xz

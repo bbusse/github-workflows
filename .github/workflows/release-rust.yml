@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       artifact_name:
-        description: Uploaded artifact name to download
+        description: Uploaded artifact name prefix to download
         required: true
         type: string
       binary_name:
@@ -29,17 +29,21 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: Download build artifact
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ${{ inputs.artifact_name }}
+          pattern: ${{ inputs.artifact_name }}-*
+          merge-multiple: true
           path: ./release
+
+      - name: Show release artifacts
+        run: ls -lah ./release
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.release_tag }}
           name: ${{ inputs.release_name || inputs.release_tag }}
-          files: ./release/${{ inputs.binary_name }}
+          files: ./release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
