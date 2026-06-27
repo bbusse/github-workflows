@@ -1,0 +1,64 @@
+name: Run shfmt
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Directory to scan for shell files
+        required: false
+        default: .
+        type: string
+      target_path:
+        description: File or directory to check, relative to working_directory
+        required: false
+        default: .
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  shfmt-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install shfmt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shfmt
+
+      - name: Check formatting (dry-run)
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          target="${{ inputs.target_path }}"
+
+          if [[ -f "$target" ]]; then
+            files="$target"
+          elif [[ -d "$target" ]]; then
+            files="$(shfmt -f "$target")"
+          else
+            echo "Target path not found: $target"
+            exit 1
+          fi
+
+          if [[ -z "$files" ]]; then
+            echo "No shell files found under: $target"
+            exit 0
+          fi
+
+          echo "Checking shfmt -i 4 on:"
+          printf '%s\n' "$files"
+
+          exit_code=0
+          while IFS= read -r file; do
+            if ! shfmt -d -i 4 "$file"; then
+              exit_code=1
+            fi
+          done <<<"$files"
+
+          if ((exit_code != 0)); then
+            echo "Formatting changes required (run: shfmt -w -i 4 <files>)"
+          fi
+          exit "$exit_code"
