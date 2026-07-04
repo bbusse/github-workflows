@@ -31,7 +31,7 @@ on:
         type: string
         description: The target platforms to build for
         required: false
-        default: linux/amd64
+        default: linux/amd64,linux/arm64
       # We set a default in an action
       container_file:
         type: string
