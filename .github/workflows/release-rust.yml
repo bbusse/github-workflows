@@ -101,6 +101,8 @@ jobs:
           # GitHub Release points to the commit that has the correct VERSION file.
           git tag "${{ steps.ver.outputs.version }}"
           git push origin "${{ steps.ver.outputs.version }}"
+          git tag -f latest
+          git push -f origin latest
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
