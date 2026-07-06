@@ -1,5 +1,19 @@
 name: Rust Binary Release
 
+# VERSION file tracks the current release state:
+#   v0         initial / last clean release
+#   v1-rc0     release candidate series in progress
+#
+# Tag conventions:
+#   rc-*       release candidate
+#              v0      → v1-rc0   (start new rc series)
+#              v1-rcN  → v1-rc(N+1)
+#   release-*  full release
+#              v1-rcN  → v1       (finalise; strip rc)
+#              v0      → v1       (direct release without prior rc)
+#
+# Both paths commit the updated VERSION back to release_branch.
+
 on:
   workflow_call:
     inputs:
@@ -11,15 +25,10 @@ on:
         description: Binary filename inside the artifact
         required: true
         type: string
-      release_tag:
-        description: Git tag name to publish/update
+      release_branch:
+        description: Branch to commit the updated VERSION file to
         required: false
-        default: latest
-        type: string
-      release_name:
-        description: Human-readable release title
-        required: false
-        default: ""
+        default: ci
         type: string
 
 permissions:
@@ -29,6 +38,66 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version from VERSION file
+        id: ver
+        run: |
+          # Bootstrap: create VERSION at v0 if it does not exist yet
+          [[ -f VERSION ]] || echo "v0" > VERSION
+          current=$(cat VERSION)
+          tag="${GITHUB_REF_NAME}"
+
+          if [[ "$current" =~ ^v([0-9]+)-rc([0-9]+)$ ]]; then
+            major="${BASH_REMATCH[1]}"
+            rc="${BASH_REMATCH[2]}"
+          elif [[ "$current" =~ ^v([0-9]+)$ ]]; then
+            major="${BASH_REMATCH[1]}"
+            rc=""
+          else
+            echo "Unrecognised VERSION format: $current" >&2
+            exit 1
+          fi
+
+          if [[ "$tag" == rc-* ]]; then
+            if [[ -n "$rc" ]]; then
+              new="v${major}-rc$(( rc + 1 ))"
+            else
+              new="v${major}-rc0"
+            fi
+            prerelease="true"
+            version_to_write="$new"
+          elif [[ "$tag" == release-* ]]; then
+            if [[ -n "$rc" ]]; then
+              new="v${major}"
+            else
+              new="v$(( major + 1 ))"
+            fi
+            prerelease="false"
+            # After a release, advance VERSION to the next major so the
+            # following rc-* tag starts a new series (e.g. v1-rc0, not v0-rc0)
+            version_to_write="v$(( major + 1 ))"
+          else
+            echo "Unexpected tag: $tag (expected rc-* or release-*)" >&2
+            exit 1
+          fi
+
+          echo "version=${new}"                >> "$GITHUB_OUTPUT"
+          echo "version_to_write=${version_to_write}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease}"       >> "$GITHUB_OUTPUT"
+
+      - name: Update VERSION and push
+        run: |
+          echo "${{ steps.ver.outputs.version_to_write }}" > VERSION
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "chore: bump VERSION to ${{ steps.ver.outputs.version }}"
+          git push origin "HEAD:${{ inputs.release_branch }}"
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -39,11 +108,19 @@ jobs:
       - name: Show release artifacts
         run: ls -lah ./release
 
+      - name: Append version to artifact filenames
+        run: |
+          for f in ./release/*; do
+            mv "$f" "${f}-${{ steps.ver.outputs.version }}"
+          done
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag }}
-          name: ${{ inputs.release_name || inputs.release_tag }}
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: ${{ steps.ver.outputs.version }}
+          prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
           files: ./release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
