@@ -180,16 +180,23 @@ jobs:
     env:
       TARGET: aarch64-unknown-linux-musl
       ARTIFACT_SUFFIX: linux-arm64-musl
-      CC_aarch64_unknown_linux_musl: aarch64-linux-musl-gcc
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-musl-gcc
+      ZIG_VERSION: "0.16.0"
+      ZIG_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install aarch64 musl cross toolchain
+      - name: Install Zig
         run: |
-          curl -fsSL https://musl.cc/aarch64-linux-musl-cross.tgz | tar -xz -C /opt
-          echo "/opt/aarch64-linux-musl-cross/bin" >> "$GITHUB_PATH"
+          curl -fsSL -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          echo "${ZIG_SHA256}  zig.tar.xz" | sha256sum -c -
+          mkdir -p /opt/zig
+          tar -xJf zig.tar.xz -C /opt/zig --strip-components=1
+          echo "/opt/zig" >> "$GITHUB_PATH"
+          rm zig.tar.xz
+
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --locked
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -199,7 +206,7 @@ jobs:
 
       - name: Build release binary
         working-directory: ${{ inputs.working_directory }}
-        run: cargo build --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
+        run: cargo zigbuild --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
 
       - name: Stage artifact
         working-directory: ${{ inputs.working_directory }}
