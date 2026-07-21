@@ -109,24 +109,38 @@ jobs:
         with:
           pattern: ${{ inputs.artifact_name }}-*
           merge-multiple: true
-          path: ./release
+          path: ./artifacts
 
-      - name: Show release artifacts
-        run: ls -lah ./release
+      - name: Show downloaded artifacts
+        run: ls -lah ./artifacts
 
-      - name: Append version to artifact filenames
+      - name: Stage versioned and latest release files
         run: |
-          for f in ./release/*; do
-            mv "$f" "${f}-${{ steps.ver.outputs.version }}"
+          mkdir -p ./release-version ./release-latest
+          for f in ./artifacts/*; do
+            base="$(basename "$f")"
+            cp "$f" "./release-version/${base}-${{ steps.ver.outputs.version }}"
+            cp "$f" "./release-latest/${base}-latest"
           done
+          chmod +x ./release-version/* ./release-latest/*
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.version }}
-          name: ${{ steps.ver.outputs.version }}
+          name: ${{ inputs.binary_name }} ${{ steps.ver.outputs.version }}
           prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
-          files: ./release/*
+          files: ./release-version/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create/update latest Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: ${{ inputs.binary_name }} (latest)
+          prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
+          files: ./release-latest/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
