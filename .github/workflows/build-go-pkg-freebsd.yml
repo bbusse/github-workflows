@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     name: FreeBSD Build
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: FreeBSD Build
         uses: vmactions/freebsd-vm@v1.3.0
         id: build
@@ -31,7 +31,7 @@ jobs:
             ls -lah
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact_name }}-freebsd-amd64-latest.tar.xz
           path: ${{ inputs.artifact_name }}-freebsd-amd64-latest.tar.xz
