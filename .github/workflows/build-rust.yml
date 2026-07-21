@@ -21,6 +21,11 @@ on:
         required: false
         default: stable
         type: string
+      musl:
+        description: Also build musl libc targets (linux-amd64-musl, linux-arm64-musl)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -107,6 +112,84 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             gcc-aarch64-linux-gnu \
             libc6-dev-arm64-cross
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+          targets: ${{ env.TARGET }}
+
+      - name: Build release binary
+        working-directory: ${{ inputs.working_directory }}
+        run: cargo build --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
+
+      - name: Stage artifact
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          mkdir -p dist
+          cp "target/${{ env.TARGET }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+          chmod +x "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}
+          path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}
+
+  build-linux-amd64-musl:
+    if: ${{ inputs.musl }}
+    runs-on: ubuntu-latest
+    env:
+      TARGET: x86_64-unknown-linux-musl
+      ARTIFACT_SUFFIX: linux-amd64-musl
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+          targets: ${{ env.TARGET }}
+
+      - name: Build release binary
+        working-directory: ${{ inputs.working_directory }}
+        run: cargo build --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
+
+      - name: Stage artifact
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          mkdir -p dist
+          cp "target/${{ env.TARGET }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+          chmod +x "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}
+          path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}
+
+  build-linux-arm64-musl:
+    if: ${{ inputs.musl }}
+    runs-on: ubuntu-latest
+    env:
+      TARGET: aarch64-unknown-linux-musl
+      ARTIFACT_SUFFIX: linux-arm64-musl
+      CC_aarch64_unknown_linux_musl: aarch64-linux-musl-gcc
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-musl-gcc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install aarch64 musl cross toolchain
+        run: |
+          curl -fsSL https://musl.cc/aarch64-linux-musl-cross.tgz | tar -xz -C /opt
+          echo "/opt/aarch64-linux-musl-cross/bin" >> "$GITHUB_PATH"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
