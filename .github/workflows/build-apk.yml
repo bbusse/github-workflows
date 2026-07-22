@@ -75,13 +75,14 @@ jobs:
 
       - name: Configure signing key
         run: |
-          mkdir -p ~/.abuild
-          cat > ~/.abuild/bbusse-releases.rsa <<< "${{ secrets.ABUILD_PRIVATE_KEY }}"
-          chmod 600 ~/.abuild/bbusse-releases.rsa
-          openssl rsa -in ~/.abuild/bbusse-releases.rsa -pubout -out ~/.abuild/bbusse-releases.rsa.pub
-          sudo cp ~/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
-          echo "PACKAGER_PRIVKEY=\"$HOME/.abuild/bbusse-releases.rsa\"" >> ~/.abuild/abuild.conf
-          echo "PACKAGER=\"$PACKAGER\"" >> ~/.abuild/abuild.conf
+          mkdir -p /home/builder/.abuild
+          cat > /home/builder/.abuild/bbusse-releases.rsa <<< "${{ secrets.ABUILD_PRIVATE_KEY }}"
+          chmod 600 /home/builder/.abuild/bbusse-releases.rsa
+          openssl rsa -in /home/builder/.abuild/bbusse-releases.rsa -pubout -out /home/builder/.abuild/bbusse-releases.rsa.pub
+          cp /home/builder/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
+          echo "PACKAGER_PRIVKEY=\"/home/builder/.abuild/bbusse-releases.rsa\"" >> /home/builder/.abuild/abuild.conf
+          echo "PACKAGER=\"$PACKAGER\"" >> /home/builder/.abuild/abuild.conf
+          chown -R builder:abuild /home/builder/.abuild
 
       - name: Write APKBUILD
         working-directory: ./work
@@ -110,13 +111,13 @@ jobs:
       - name: Build package
         working-directory: ./work
         run: |
-          abuild checksum
-          abuild -r
+          chown -R builder:abuild .
+          sudo -u builder -H sh -c 'abuild checksum && abuild -r'
 
       - name: Stage package
         run: |
           mkdir -p ./out
-          find ~/packages -name '*.apk' -exec cp {} ./out/ \;
+          find /home/builder/packages -name '*.apk' -exec cp {} ./out/ \;
           ls -lah ./out
 
       - name: Upload apk artifact
@@ -141,13 +142,14 @@ jobs:
 
       - name: Configure signing key
         run: |
-          mkdir -p ~/.abuild
-          cat > ~/.abuild/bbusse-releases.rsa <<< "${{ secrets.ABUILD_PRIVATE_KEY }}"
-          chmod 600 ~/.abuild/bbusse-releases.rsa
-          openssl rsa -in ~/.abuild/bbusse-releases.rsa -pubout -out ~/.abuild/bbusse-releases.rsa.pub
-          sudo cp ~/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
-          echo "PACKAGER_PRIVKEY=\"$HOME/.abuild/bbusse-releases.rsa\"" >> ~/.abuild/abuild.conf
-          echo "PACKAGER=\"$PACKAGER\"" >> ~/.abuild/abuild.conf
+          mkdir -p /home/builder/.abuild
+          cat > /home/builder/.abuild/bbusse-releases.rsa <<< "${{ secrets.ABUILD_PRIVATE_KEY }}"
+          chmod 600 /home/builder/.abuild/bbusse-releases.rsa
+          openssl rsa -in /home/builder/.abuild/bbusse-releases.rsa -pubout -out /home/builder/.abuild/bbusse-releases.rsa.pub
+          cp /home/builder/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
+          echo "PACKAGER_PRIVKEY=\"/home/builder/.abuild/bbusse-releases.rsa\"" >> /home/builder/.abuild/abuild.conf
+          echo "PACKAGER=\"$PACKAGER\"" >> /home/builder/.abuild/abuild.conf
+          chown -R builder:abuild /home/builder/.abuild
 
       - name: Write APKBUILD
         working-directory: ./work
@@ -176,13 +178,13 @@ jobs:
       - name: Build package
         working-directory: ./work
         run: |
-          abuild checksum
-          abuild -r
+          chown -R builder:abuild .
+          sudo -u builder -H sh -c 'abuild checksum && abuild -r'
 
       - name: Stage package
         run: |
           mkdir -p ./out
-          find ~/packages -name '*.apk' -exec cp {} ./out/ \;
+          find /home/builder/packages -name '*.apk' -exec cp {} ./out/ \;
           ls -lah ./out
 
       - name: Upload apk artifact
