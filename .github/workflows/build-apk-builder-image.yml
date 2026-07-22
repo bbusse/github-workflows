@@ -1,0 +1,24 @@
+name: Build and Push APK Builder Image
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'containers/apk-builder/**'
+      - '.github/workflows/build-apk-builder-image.yml'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/container-build-push.yaml
+    with:
+      image_name: apk-builder
+      image_repository: ghcr.io/bbusse
+      container_registry: ghcr
+      container_build_context: containers/apk-builder
+      image_platforms: linux/amd64,linux/arm64
+      image_tag: latest
+    secrets: inherit

@@ -1,0 +1,183 @@
+name: Build Alpine Package
+
+# Packages an already-built linux-*-musl binary (produced by build-rust.yml
+# with musl: true) into a signed Alpine (.apk) package, using our own
+# apk-builder container image (see containers/apk-builder/Containerfile and
+# build-apk-builder-image.yml).
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: Artifact name prefix the linux-*-musl binaries were uploaded under
+        required: true
+        type: string
+      binary_name:
+        description: Binary filename inside the artifact (also used as pkgname)
+        required: true
+        type: string
+      version:
+        description: Version to package (e.g. v1, v1-rc0); normalised into an Alpine pkgver
+        required: true
+        type: string
+      pkgdesc:
+        description: Short package description
+        required: false
+        default: ''
+        type: string
+      pkgurl:
+        description: Upstream project URL
+        required: false
+        default: ''
+        type: string
+      license:
+        description: SPDX license identifier
+        required: false
+        default: MIT
+        type: string
+      pkgrel:
+        description: Alpine package release number
+        required: false
+        default: '0'
+        type: string
+      apk_builder_image:
+        description: Container image used to run abuild
+        required: false
+        default: ghcr.io/bbusse/apk-builder:latest
+        type: string
+    secrets:
+      ABUILD_PRIVATE_KEY:
+        description: PEM-encoded RSA private key used to sign the built .apk packages
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk-amd64:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.apk_builder_image }}
+    env:
+      ALPINE_ARCH: x86_64
+      ARTIFACT_SUFFIX: linux-amd64-musl
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}
+          path: ./work
+
+      - name: Configure signing key
+        run: |
+          mkdir -p ~/.abuild
+          cat > ~/.abuild/bbusse-releases.rsa <<< "${{ secrets.ABUILD_PRIVATE_KEY }}"
+          chmod 600 ~/.abuild/bbusse-releases.rsa
+          openssl rsa -in ~/.abuild/bbusse-releases.rsa -pubout -out ~/.abuild/bbusse-releases.rsa.pub
+          sudo cp ~/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
+          echo "PACKAGER_PRIVKEY=\"$HOME/.abuild/bbusse-releases.rsa\"" >> ~/.abuild/abuild.conf
+
+      - name: Write APKBUILD
+        working-directory: ./work
+        run: |
+          mv "${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}" "${{ inputs.binary_name }}"
+          chmod +x "${{ inputs.binary_name }}"
+          PKGVER="$(echo "${{ inputs.version }}" | sed -E 's/^[vV]//; s/-/_/g')"
+          cat > APKBUILD <<APKBUILD_EOF
+          pkgname=${{ inputs.binary_name }}
+          pkgver=${PKGVER}
+          pkgrel=${{ inputs.pkgrel }}
+          pkgdesc="${{ inputs.pkgdesc || inputs.binary_name }}"
+          url="${{ inputs.pkgurl }}"
+          arch="${ALPINE_ARCH}"
+          license="${{ inputs.license }}"
+          source=""
+          options="!check"
+
+          package() {
+              install -Dm755 "\$startdir/${{ inputs.binary_name }}" "\$pkgdir"/usr/bin/${{ inputs.binary_name }}
+          }
+          APKBUILD_EOF
+          cat APKBUILD
+
+      - name: Build package
+        working-directory: ./work
+        run: |
+          abuild checksum
+          abuild -r
+
+      - name: Stage package
+        run: |
+          mkdir -p ./out
+          find ~/packages -name '*.apk' -exec cp {} ./out/ \;
+          ls -lah ./out
+
+      - name: Upload apk artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}-apk-x86_64
+          path: ./out/*.apk
+
+  build-apk-arm64:
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: ${{ inputs.apk_builder_image }}
+    env:
+      ALPINE_ARCH: aarch64
+      ARTIFACT_SUFFIX: linux-arm64-musl
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}
+          path: ./work
+
+      - name: Configure signing key
+        run: |
+          mkdir -p ~/.abuild
+          cat > ~/.abuild/bbusse-releases.rsa <<< "${{ secrets.ABUILD_PRIVATE_KEY }}"
+          chmod 600 ~/.abuild/bbusse-releases.rsa
+          openssl rsa -in ~/.abuild/bbusse-releases.rsa -pubout -out ~/.abuild/bbusse-releases.rsa.pub
+          sudo cp ~/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
+          echo "PACKAGER_PRIVKEY=\"$HOME/.abuild/bbusse-releases.rsa\"" >> ~/.abuild/abuild.conf
+
+      - name: Write APKBUILD
+        working-directory: ./work
+        run: |
+          mv "${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}" "${{ inputs.binary_name }}"
+          chmod +x "${{ inputs.binary_name }}"
+          PKGVER="$(echo "${{ inputs.version }}" | sed -E 's/^[vV]//; s/-/_/g')"
+          cat > APKBUILD <<APKBUILD_EOF
+          pkgname=${{ inputs.binary_name }}
+          pkgver=${PKGVER}
+          pkgrel=${{ inputs.pkgrel }}
+          pkgdesc="${{ inputs.pkgdesc || inputs.binary_name }}"
+          url="${{ inputs.pkgurl }}"
+          arch="${ALPINE_ARCH}"
+          license="${{ inputs.license }}"
+          source=""
+          options="!check"
+
+          package() {
+              install -Dm755 "\$startdir/${{ inputs.binary_name }}" "\$pkgdir"/usr/bin/${{ inputs.binary_name }}
+          }
+          APKBUILD_EOF
+          cat APKBUILD
+
+      - name: Build package
+        working-directory: ./work
+        run: |
+          abuild checksum
+          abuild -r
+
+      - name: Stage package
+        run: |
+          mkdir -p ./out
+          find ~/packages -name '*.apk' -exec cp {} ./out/ \;
+          ls -lah ./out
+
+      - name: Upload apk artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}-apk-aarch64
+          path: ./out/*.apk
