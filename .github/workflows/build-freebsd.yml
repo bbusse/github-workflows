@@ -30,7 +30,7 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/kou/arrow/e49d8ae15583ceff03237571569099a6ad62be32/ci/scripts/util_free_space.sh | bash
 
       - name: Build FreeBSD in VM
-        uses: vmactions/freebsd-vm@v1
+        uses: vmactions/freebsd-vm@77ed28d336d03fe19a3f4f7266c1d2c4714dd79d # v1.5.2
         id: build
         with:
           release: "${{ inputs.release }}"
