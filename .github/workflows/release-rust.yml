@@ -99,6 +99,14 @@ jobs:
           echo "version_to_write=${version_to_write}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${prerelease}"       >> "$GITHUB_OUTPUT"
 
+      - name: Ensure release_branch has not moved since tagging
+        run: |
+          git fetch origin "${{ inputs.release_branch }}"
+          if ! git merge-base --is-ancestor "origin/${{ inputs.release_branch }}" HEAD; then
+            echo "::error::${{ inputs.release_branch }} has moved since tag ${GITHUB_REF_NAME} was created (a commit landed on ${{ inputs.release_branch }} after this tag, so pushing a VERSION bump on top of the tag would not fast-forward). Re-tag from the current tip of ${{ inputs.release_branch }} and push the tag again." >&2
+            exit 1
+          fi
+
       - name: Update VERSION and push
         run: |
           echo "${{ steps.ver.outputs.version_to_write }}" > VERSION
