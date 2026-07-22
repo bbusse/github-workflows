@@ -19,6 +19,7 @@ jobs:
       image_repository: ghcr.io/bbusse
       container_registry: ghcr
       container_build_context: containers/apk-builder
+      container_file: containers/apk-builder/Containerfile
       image_platforms: linux/amd64,linux/arm64
       image_tag: latest
       container_push_to_registry: true
