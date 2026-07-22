@@ -53,6 +53,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Set as a repo (or org) Actions variable in each calling repo, e.g.:
+  #   gh variable set PACKAGER --body "Name <email>" --repo <owner>/<repo>
+  PACKAGER: ${{ vars.PACKAGER }}
+
 jobs:
   build-apk-amd64:
     runs-on: ubuntu-latest
@@ -76,6 +81,7 @@ jobs:
           openssl rsa -in ~/.abuild/bbusse-releases.rsa -pubout -out ~/.abuild/bbusse-releases.rsa.pub
           sudo cp ~/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
           echo "PACKAGER_PRIVKEY=\"$HOME/.abuild/bbusse-releases.rsa\"" >> ~/.abuild/abuild.conf
+          echo "PACKAGER=\"$PACKAGER\"" >> ~/.abuild/abuild.conf
 
       - name: Write APKBUILD
         working-directory: ./work
@@ -91,6 +97,7 @@ jobs:
           url="${{ inputs.pkgurl }}"
           arch="${ALPINE_ARCH}"
           license="${{ inputs.license }}"
+          maintainer="$PACKAGER"
           source=""
           options="!check"
 
@@ -140,6 +147,7 @@ jobs:
           openssl rsa -in ~/.abuild/bbusse-releases.rsa -pubout -out ~/.abuild/bbusse-releases.rsa.pub
           sudo cp ~/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
           echo "PACKAGER_PRIVKEY=\"$HOME/.abuild/bbusse-releases.rsa\"" >> ~/.abuild/abuild.conf
+          echo "PACKAGER=\"$PACKAGER\"" >> ~/.abuild/abuild.conf
 
       - name: Write APKBUILD
         working-directory: ./work
@@ -155,6 +163,7 @@ jobs:
           url="${{ inputs.pkgurl }}"
           arch="${ALPINE_ARCH}"
           license="${{ inputs.license }}"
+          maintainer="$PACKAGER"
           source=""
           options="!check"
 
