@@ -125,6 +125,7 @@ jobs:
         with:
           name: ${{ inputs.artifact_name }}-apk-x86_64
           path: ./out/*.apk
+          archive: false
 
   build-apk-arm64:
     # Native ARM64 hardware isn't needed here: abuild never compiles or
@@ -197,3 +198,4 @@ jobs:
         with:
           name: ${{ inputs.artifact_name }}-apk-aarch64
           path: ./out/*.apk
+          archive: false
