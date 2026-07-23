@@ -76,7 +76,7 @@ jobs:
       - name: Configure signing key
         run: |
           mkdir -p /home/builder/.abuild
-          cat > /home/builder/.abuild/bbusse-releases.rsa <<< "${{ secrets.ABUILD_PRIVATE_KEY }}"
+          printf '%s\n' "${{ secrets.ABUILD_PRIVATE_KEY }}" > /home/builder/.abuild/bbusse-releases.rsa
           chmod 600 /home/builder/.abuild/bbusse-releases.rsa
           openssl rsa -in /home/builder/.abuild/bbusse-releases.rsa -pubout -out /home/builder/.abuild/bbusse-releases.rsa.pub
           cp /home/builder/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
@@ -90,22 +90,22 @@ jobs:
           mv "${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}" "${{ inputs.binary_name }}"
           chmod +x "${{ inputs.binary_name }}"
           PKGVER="$(echo "${{ inputs.version }}" | sed -E 's/^[vV]//; s/-/_/g')"
-          cat > APKBUILD <<APKBUILD_EOF
-          pkgname=${{ inputs.binary_name }}
-          pkgver=${PKGVER}
-          pkgrel=${{ inputs.pkgrel }}
-          pkgdesc="${{ inputs.pkgdesc || inputs.binary_name }}"
-          url="${{ inputs.pkgurl }}"
-          arch="${ALPINE_ARCH}"
-          license="${{ inputs.license }}"
-          maintainer="$PACKAGER"
-          source=""
-          options="!check"
-
-          package() {
-              install -Dm755 "\$startdir/${{ inputs.binary_name }}" "\$pkgdir"/usr/bin/${{ inputs.binary_name }}
-          }
-          APKBUILD_EOF
+          {
+            echo "pkgname=${{ inputs.binary_name }}"
+            echo "pkgver=$PKGVER"
+            echo "pkgrel=${{ inputs.pkgrel }}"
+            echo "pkgdesc=\"${{ inputs.pkgdesc || inputs.binary_name }}\""
+            echo "url=\"${{ inputs.pkgurl }}\""
+            echo "arch=\"$ALPINE_ARCH\""
+            echo "license=\"${{ inputs.license }}\""
+            echo "maintainer=\"$PACKAGER\""
+            echo 'source=""'
+            echo 'options="!check !strip !tracedeps"'
+            echo ''
+            echo 'package() {'
+            echo "    install -Dm755 \"\$startdir/${{ inputs.binary_name }}\" \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
+            echo '}'
+          } > APKBUILD
           cat APKBUILD
 
       - name: Build package
@@ -127,7 +127,12 @@ jobs:
           path: ./out/*.apk
 
   build-apk-arm64:
-    runs-on: ubuntu-24.04-arm
+    # Native ARM64 hardware isn't needed here: abuild never compiles or
+    # executes the target binary, it just copies the prebuilt one into a
+    # package (arch=aarch64 is metadata only). Running on the same x64
+    # runner as build-apk-amd64 also sidesteps GitHub's restriction that
+    # JS actions in Alpine containers only work on x64 Linux runners.
+    runs-on: ubuntu-latest
     container:
       image: ${{ inputs.apk_builder_image }}
     env:
@@ -143,7 +148,7 @@ jobs:
       - name: Configure signing key
         run: |
           mkdir -p /home/builder/.abuild
-          cat > /home/builder/.abuild/bbusse-releases.rsa <<< "${{ secrets.ABUILD_PRIVATE_KEY }}"
+          printf '%s\n' "${{ secrets.ABUILD_PRIVATE_KEY }}" > /home/builder/.abuild/bbusse-releases.rsa
           chmod 600 /home/builder/.abuild/bbusse-releases.rsa
           openssl rsa -in /home/builder/.abuild/bbusse-releases.rsa -pubout -out /home/builder/.abuild/bbusse-releases.rsa.pub
           cp /home/builder/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
@@ -157,29 +162,29 @@ jobs:
           mv "${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}" "${{ inputs.binary_name }}"
           chmod +x "${{ inputs.binary_name }}"
           PKGVER="$(echo "${{ inputs.version }}" | sed -E 's/^[vV]//; s/-/_/g')"
-          cat > APKBUILD <<APKBUILD_EOF
-          pkgname=${{ inputs.binary_name }}
-          pkgver=${PKGVER}
-          pkgrel=${{ inputs.pkgrel }}
-          pkgdesc="${{ inputs.pkgdesc || inputs.binary_name }}"
-          url="${{ inputs.pkgurl }}"
-          arch="${ALPINE_ARCH}"
-          license="${{ inputs.license }}"
-          maintainer="$PACKAGER"
-          source=""
-          options="!check"
-
-          package() {
-              install -Dm755 "\$startdir/${{ inputs.binary_name }}" "\$pkgdir"/usr/bin/${{ inputs.binary_name }}
-          }
-          APKBUILD_EOF
+          {
+            echo "pkgname=${{ inputs.binary_name }}"
+            echo "pkgver=$PKGVER"
+            echo "pkgrel=${{ inputs.pkgrel }}"
+            echo "pkgdesc=\"${{ inputs.pkgdesc || inputs.binary_name }}\""
+            echo "url=\"${{ inputs.pkgurl }}\""
+            echo "arch=\"$ALPINE_ARCH\""
+            echo "license=\"${{ inputs.license }}\""
+            echo "maintainer=\"$PACKAGER\""
+            echo 'source=""'
+            echo 'options="!check !strip !tracedeps"'
+            echo ''
+            echo 'package() {'
+            echo "    install -Dm755 \"\$startdir/${{ inputs.binary_name }}\" \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
+            echo '}'
+          } > APKBUILD
           cat APKBUILD
 
       - name: Build package
         working-directory: ./work
         run: |
           chown -R builder:abuild .
-          sudo -u builder -H sh -c 'abuild checksum && abuild -r'
+          sudo -u builder -H sh -c 'CARCH=aarch64 abuild checksum && CARCH=aarch64 abuild -r'
 
       - name: Stage package
         run: |

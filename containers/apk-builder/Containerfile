@@ -5,7 +5,7 @@ FROM alpine:3.24.1
 # to this user via `sudo -u builder`. The container itself stays root by
 # default so GitHub Actions' own steps (checkout, download/upload-artifact)
 # can write to the runner-owned workspace mount.
-RUN apk add --no-cache alpine-sdk sudo openssl \
+RUN apk add --no-cache alpine-sdk sudo openssl bash \
     && adduser -D builder \
     && addgroup builder abuild \
     && echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder \
