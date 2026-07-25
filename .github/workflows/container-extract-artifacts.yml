@@ -1,0 +1,92 @@
+name: Extract and release build artifacts
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Full container image reference (e.g., ghcr.io/org/image:tag)
+        required: true
+        type: string
+      artifacts:
+        description: >
+          JSON array of artifacts to extract, e.g.
+          [{"path":"home/build/foo.apk","name":"foo-x86_64.apk","platform":"linux/amd64"}]
+        required: true
+        type: string
+      release:
+        description: Create a GitHub Release and attach each artifact
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: Tag name to use for the Release (e.g., v1.0.0)
+        required: false
+        type: string
+      release_name:
+        description: Release title (defaults to tag)
+        required: false
+        type: string
+      wait-for-job:
+        description: Regexp for job to wait for
+        required: true
+        type: string
+      use_arm_runner:
+        description: Use ARM runner
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      GH_TOKEN:
+        description: Token for checking statuses
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  wait-for-container:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for container release
+        uses: lewagon/wait-on-check-action@v1.3.1
+        with:
+          ref: ${{ github.ref }}
+          check-regexp: ${{ inputs.wait-for-job }}
+          repo-token: ${{ secrets.GH_TOKEN }}
+          wait-interval: 10
+
+  extract-artifacts:
+    needs: wait-for-container
+    runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      matrix:
+        artifact: ${{ fromJson(inputs.artifacts) }}
+    steps:
+      - name: Extract ${{ matrix.artifact.name }} from build container
+        uses: bbusse/container-extract@v1
+        id: extract
+        with:
+          image: ${{ inputs.image }}
+          paths: ${{ matrix.artifact.path }}
+          platform: ${{ matrix.artifact.platform }}
+
+      - name: Rename extracted artifact
+        run: mv "${{ steps.extract.outputs.destination }}/$(basename '${{ matrix.artifact.path }}')" "${{ matrix.artifact.name }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact.name }}
+          path: ${{ matrix.artifact.name }}
+
+      - name: Create GitHub Release (optional)
+        if: ${{ inputs.release == true }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: ${{ inputs.release_name || inputs.release_tag || github.ref_name }}
+          draft: false
+          prerelease: false
+          files: ${{ matrix.artifact.name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
