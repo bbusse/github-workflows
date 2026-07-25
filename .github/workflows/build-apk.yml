@@ -45,6 +45,11 @@ on:
         required: false
         default: ghcr.io/bbusse/apk-builder:latest
         type: string
+      key_name:
+        description: Basename (no extension) the signing key is written as; consumers must trust a matching <key_name>.rsa.pub, as apk looks up the key by this exact filename
+        required: false
+        default: bbusse-releases
+        type: string
     secrets:
       ABUILD_PRIVATE_KEY:
         description: PEM-encoded RSA private key used to sign the built .apk packages
@@ -74,13 +79,15 @@ jobs:
           path: ./work
 
       - name: Configure signing key
+        env:
+          KEY_NAME: ${{ inputs.key_name }}
         run: |
           mkdir -p /home/builder/.abuild
-          printf '%s\n' "${{ secrets.ABUILD_PRIVATE_KEY }}" > /home/builder/.abuild/bbusse-releases.rsa
-          chmod 600 /home/builder/.abuild/bbusse-releases.rsa
-          openssl rsa -in /home/builder/.abuild/bbusse-releases.rsa -pubout -out /home/builder/.abuild/bbusse-releases.rsa.pub
-          cp /home/builder/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
-          echo "PACKAGER_PRIVKEY=\"/home/builder/.abuild/bbusse-releases.rsa\"" >> /home/builder/.abuild/abuild.conf
+          printf '%s\n' "${{ secrets.ABUILD_PRIVATE_KEY }}" > "/home/builder/.abuild/$KEY_NAME.rsa"
+          chmod 600 "/home/builder/.abuild/$KEY_NAME.rsa"
+          openssl rsa -in "/home/builder/.abuild/$KEY_NAME.rsa" -pubout -out "/home/builder/.abuild/$KEY_NAME.rsa.pub"
+          cp "/home/builder/.abuild/$KEY_NAME.rsa.pub" /etc/apk/keys/
+          echo "PACKAGER_PRIVKEY=\"/home/builder/.abuild/$KEY_NAME.rsa\"" >> /home/builder/.abuild/abuild.conf
           echo "PACKAGER=\"$PACKAGER\"" >> /home/builder/.abuild/abuild.conf
           chown -R builder:abuild /home/builder/.abuild
 
@@ -146,13 +153,15 @@ jobs:
           path: ./work
 
       - name: Configure signing key
+        env:
+          KEY_NAME: ${{ inputs.key_name }}
         run: |
           mkdir -p /home/builder/.abuild
-          printf '%s\n' "${{ secrets.ABUILD_PRIVATE_KEY }}" > /home/builder/.abuild/bbusse-releases.rsa
-          chmod 600 /home/builder/.abuild/bbusse-releases.rsa
-          openssl rsa -in /home/builder/.abuild/bbusse-releases.rsa -pubout -out /home/builder/.abuild/bbusse-releases.rsa.pub
-          cp /home/builder/.abuild/bbusse-releases.rsa.pub /etc/apk/keys/
-          echo "PACKAGER_PRIVKEY=\"/home/builder/.abuild/bbusse-releases.rsa\"" >> /home/builder/.abuild/abuild.conf
+          printf '%s\n' "${{ secrets.ABUILD_PRIVATE_KEY }}" > "/home/builder/.abuild/$KEY_NAME.rsa"
+          chmod 600 "/home/builder/.abuild/$KEY_NAME.rsa"
+          openssl rsa -in "/home/builder/.abuild/$KEY_NAME.rsa" -pubout -out "/home/builder/.abuild/$KEY_NAME.rsa.pub"
+          cp "/home/builder/.abuild/$KEY_NAME.rsa.pub" /etc/apk/keys/
+          echo "PACKAGER_PRIVKEY=\"/home/builder/.abuild/$KEY_NAME.rsa\"" >> /home/builder/.abuild/abuild.conf
           echo "PACKAGER=\"$PACKAGER\"" >> /home/builder/.abuild/abuild.conf
           chown -R builder:abuild /home/builder/.abuild
 
