@@ -140,8 +140,15 @@ jobs:
           mkdir -p ./release-version ./release-latest
           for f in ./artifacts/*; do
             base="$(basename "$f")"
-            cp "$f" "./release-version/${base}-${{ steps.ver.outputs.version }}"
-            cp "$f" "./release-latest/${base}-latest"
+            case "$base" in
+              *.tar.xz) stem="${base%.tar.xz}"; ext=".tar.xz" ;;
+              *.tar.gz) stem="${base%.tar.gz}"; ext=".tar.gz" ;;
+              *.zip)    stem="${base%.zip}";    ext=".zip" ;;
+              *.dmg)    stem="${base%.dmg}";    ext=".dmg" ;;
+              *)        stem="$base";           ext="" ;;
+            esac
+            cp "$f" "./release-version/${stem}-${{ steps.ver.outputs.version }}${ext}"
+            cp "$f" "./release-latest/${stem}-latest${ext}"
           done
           chmod +x ./release-version/* ./release-latest/*
 
