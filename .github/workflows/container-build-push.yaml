@@ -16,6 +16,11 @@ on:
         type: string
         description: An optional image tag
         default: ''
+      image_additional_tags:
+        type: string
+        description: A comma and/or newline separated list of additional tags to apply to the image
+        required: false
+        default: ''
       image_repository:
         type: string
         description: The image repository
@@ -120,6 +125,15 @@ jobs:
         DEFAULT_TAG=${{ github.ref_name }}
         echo "DEFAULT_TAG=${DEFAULT_TAG////-}_${{ steps.short-sha.outputs.short_sha }}_${{ github.run_number }}" >> $GITHUB_ENV
 
+    - name: Build additional tag rules
+      id: additional-tags
+      run: |
+        {
+          echo "tags<<EOF"
+          echo "${{ inputs.image_additional_tags }}" | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' | sed 's/^/type=raw,value=/'
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
     - name: Extract metadata (tags, labels)
       id: extract-metadata
       uses: docker/metadata-action@v5
@@ -130,6 +144,7 @@ jobs:
           type=raw,enable=true,priority=200,prefix=,suffix=,value=${{ env.DEFAULT_TAG }}
           type=raw,value=latest,enable=true
           type=sha,enable=true,priority=100,prefix=sha-,suffix=,format=long
+          ${{ steps.additional-tags.outputs.tags }}
 
     - run: ls -l
 
