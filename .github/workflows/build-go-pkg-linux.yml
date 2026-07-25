@@ -8,7 +8,7 @@ on:
         type: string
 
 jobs:
-  build-freebsd:
+  build-linux:
     runs-on: ubuntu-latest
     name: Linux Build
     steps:
@@ -19,11 +19,11 @@ jobs:
           pwd
           ls -lah
           go build -o ${{ inputs.artifact_name }}
-          tar -cJvf ${{ inputs.artifact_name }}-linux-amd64-latest.tar.xz ${{ inputs.artifact_name }}
+          tar -cJvf ${{ inputs.artifact_name }}-linux-amd64.tar.xz ${{ inputs.artifact_name }}
           ls -lah
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.artifact_name }}-linux-amd64-latest.tar.xz
-          path: ${{ inputs.artifact_name }}-linux-amd64-latest.tar.xz
+          name: ${{ inputs.artifact_name }}-linux-amd64.tar.xz
+          path: ${{ inputs.artifact_name }}-linux-amd64.tar.xz

@@ -1,28 +1,45 @@
----
-name: Release
+name: Binary Release
+
+# VERSION file tracks the current release state:
+#   v0         initial / last clean release
+#   v1-rc0     release candidate series in progress
+#
+# Tag conventions:
+#   rc-*       release candidate
+#              v0      → v1-rc0   (start new rc series)
+#              v1-rcN  → v1-rc(N+1)
+#   release-*  full release
+#              v1-rcN  → v1       (finalise; strip rc)
+#              v0      → v1       (direct release without prior rc)
+#
+# Both paths commit the updated VERSION back to release_branch.
+#
+# Language-agnostic: only needs artifact_name-* files uploaded by whatever
+# build workflow(s) the caller ran beforehand (Rust, Go, kernel image, ...).
 
 on:
   workflow_call:
     inputs:
-      check_regexp:
-        description: Check name/regexp to wait for
-        required: false
-        default: build-linux-kernel*
+      artifact_name:
+        description: Uploaded artifact name prefix to download
+        required: true
         type: string
-      automatic_release_tag:
-        description: Release tag to create
-        required: false
-        default: latest
+      binary_name:
+        description: Binary filename inside the artifact
+        required: true
         type: string
-      files_glob:
-        description: Files glob to attach to release
+      release_branch:
+        description: Branch to commit the updated VERSION file to
         required: false
-        default: /output/bzImage-*
+        default: ci
         type: string
-    secrets:
-      REPO_TOKEN:
-        description: Token for repository operations (fallback to GITHUB_TOKEN)
-        required: false
+    outputs:
+      version:
+        description: Resolved version for this release (e.g. v1, v1-rc0)
+        value: ${{ jobs.release.outputs.version }}
+      prerelease:
+        description: Whether this release is a prerelease (rc)
+        value: ${{ jobs.release.outputs.prerelease }}
 
 permissions:
   contents: write
@@ -30,20 +47,120 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      prerelease: ${{ steps.ver.outputs.prerelease }}
     steps:
-    - name: Wait for build
-      uses: lewagon/wait-on-check-action@v1.3.1
-      with:
-        ref: ${{ github.ref }}
-        check-regexp: ${{ inputs.check_regexp }}
-        repo-token: ${{ secrets.REPO_TOKEN || secrets.GITHUB_TOKEN }}
-        wait-interval: 10
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
-    - name: Release
-      uses: "marvinpinto/action-automatic-releases@latest"
-      with:
-        repo_token: "${{ secrets.REPO_TOKEN || secrets.GITHUB_TOKEN }}"
-        prerelease: false
-        automatic_release_tag: "${{ inputs.automatic_release_tag }}"
-        files: |
-          ${{ inputs.files_glob }}
+      - name: Determine version from VERSION file
+        id: ver
+        run: |
+          # Bootstrap: create VERSION at v0 if it does not exist yet
+          [[ -f VERSION ]] || echo "v0" > VERSION
+          current=$(cat VERSION)
+          tag="${GITHUB_REF_NAME}"
+
+          if [[ "$current" =~ ^v([0-9]+)-rc([0-9]+)$ ]]; then
+            major="${BASH_REMATCH[1]}"
+            rc="${BASH_REMATCH[2]}"
+          elif [[ "$current" =~ ^v([0-9]+)$ ]]; then
+            major="${BASH_REMATCH[1]}"
+            rc=""
+          else
+            echo "Unrecognised VERSION format: $current" >&2
+            exit 1
+          fi
+
+          if [[ "$tag" == rc-* ]]; then
+            if [[ -n "$rc" ]]; then
+              new="v${major}-rc$(( rc + 1 ))"
+            else
+              new="v${major}-rc0"
+            fi
+            prerelease="true"
+            version_to_write="$new"
+          elif [[ "$tag" == release-* ]]; then
+            if [[ -n "$rc" ]]; then
+              new="v${major}"
+            else
+              new="v$(( major + 1 ))"
+            fi
+            prerelease="false"
+            # After a release, advance VERSION to the next major so the
+            # following rc-* tag starts a new series (e.g. v1-rc0, not v0-rc0)
+            version_to_write="v$(( major + 1 ))"
+          else
+            echo "Unexpected tag: $tag (expected rc-* or release-*)" >&2
+            exit 1
+          fi
+
+          echo "version=${new}"                >> "$GITHUB_OUTPUT"
+          echo "version_to_write=${version_to_write}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease}"       >> "$GITHUB_OUTPUT"
+
+      - name: Ensure release_branch has not moved since tagging
+        run: |
+          git fetch origin "${{ inputs.release_branch }}"
+          if ! git merge-base --is-ancestor "origin/${{ inputs.release_branch }}" HEAD; then
+            echo "::error::${{ inputs.release_branch }} has moved since tag ${GITHUB_REF_NAME} was created (a commit landed on ${{ inputs.release_branch }} after this tag, so pushing a VERSION bump on top of the tag would not fast-forward). Re-tag from the current tip of ${{ inputs.release_branch }} and push the tag again." >&2
+            exit 1
+          fi
+
+      - name: Update VERSION and push
+        run: |
+          echo "${{ steps.ver.outputs.version_to_write }}" > VERSION
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "Bump VERSION to ${{ steps.ver.outputs.version }}"
+          git push origin "HEAD:${{ inputs.release_branch }}"
+          # Tag the VERSION-bump commit with the release version so the
+          # GitHub Release points to the commit that has the correct VERSION file.
+          git tag "${{ steps.ver.outputs.version }}"
+          git push origin "${{ steps.ver.outputs.version }}"
+          git tag -f latest
+          git push -f origin latest
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ inputs.artifact_name }}-*
+          merge-multiple: true
+          path: ./artifacts
+
+      - name: Show downloaded artifacts
+        run: ls -lah ./artifacts
+
+      - name: Stage versioned and latest release files
+        run: |
+          mkdir -p ./release-version ./release-latest
+          for f in ./artifacts/*; do
+            base="$(basename "$f")"
+            cp "$f" "./release-version/${base}-${{ steps.ver.outputs.version }}"
+            cp "$f" "./release-latest/${base}-latest"
+          done
+          chmod +x ./release-version/* ./release-latest/*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: ${{ inputs.binary_name }} ${{ steps.ver.outputs.version }}
+          prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
+          files: ./release-version/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create/update latest Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: ${{ inputs.binary_name }} (latest)
+          prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
+          files: ./release-latest/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

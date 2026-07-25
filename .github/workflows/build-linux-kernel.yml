@@ -44,3 +44,27 @@ jobs:
           image-builder build linux-kernel ${{ inputs.config }}
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u $GITHUB_ACTOR --password-stdin
           podman push ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
+
+      - name: Extract kernel image from build container
+        uses: bbusse/actions-docker-extract@latest
+        id: extract-image
+        with:
+          image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
+          path: /usr/src/linux/Image-${{ inputs.config }}
+          platform: linux/arm64
+
+      - name: Extract kernel image checksum from build container
+        uses: bbusse/actions-docker-extract@latest
+        id: extract-checksum
+        with:
+          image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
+          path: /usr/src/linux/Image-${{ inputs.config }}.sha384
+          platform: linux/arm64
+
+      - name: Upload kernel image artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-kernel-${{ inputs.config }}
+          path: |
+            Image-${{ inputs.config }}
+            Image-${{ inputs.config }}.sha384
