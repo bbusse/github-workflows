@@ -61,6 +61,9 @@ on:
 jobs:
   build-and-push-container:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -103,7 +106,7 @@ jobs:
 
     - name: Get registry/repo path
       id: get-registry-ghcr
-      run: echo "repository=ghcr.io/${{ inputs.image_repository }}/${{ inputs.image_name }}" >> $GITHUB_ENV
+      run: echo "repository=${{ inputs.image_repository }}/${{ inputs.image_name }}" >> $GITHUB_ENV
       if: inputs.container_registry == 'ghcr'
 
     - name: Create tag from tag from github.ref_name
