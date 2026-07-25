@@ -57,11 +57,6 @@ on:
         description: The container registry to push to, one of ghcr / ecr
         required: false
         default: 'ecr'
-      container_build_cache_path:
-        type: string
-        description: The path where to store the build cache
-        required: false
-        default: '/tmp/'
 
 jobs:
   build-and-push-container:
@@ -75,14 +70,6 @@ jobs:
 
     - name: Set up Docker buildx
       uses: docker/setup-buildx-action@v3
-
-    - name: Cache container layers
-      uses: actions/cache@v4
-      with:
-        path: ${{ inputs.container_build_cache_path }}
-        key: ${{ runner.os }}-buildx-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-buildx-
 
     - name: Get short SHA
       id: short-sha
@@ -169,8 +156,8 @@ jobs:
         context: ${{ inputs.container_build_context }}
         tags: ${{ steps.extract-metadata.outputs.tags }}
         labels: ${{ steps.extract-metadata.outputs.labels }}
-        cache-from: type=local,src=${{ inputs.container_build_cache_path }}
-        cache-to: type=local,dest=${{ inputs.container_build_cache_path }}
+        cache-from: type=gha,scope=${{ inputs.image_name }}
+        cache-to: type=gha,mode=max,scope=${{ inputs.image_name }}
         provenance: false
         push: ${{ inputs.container_push_to_registry }}
 
