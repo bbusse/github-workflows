@@ -103,7 +103,7 @@ jobs:
 
     - name: Get registry/repo path
       id: get-registry-ghcr
-      run: echo "repository=${{ inputs.image_repository }}/${{ inputs.image_name }}" >> $GITHUB_ENV
+      run: echo "repository=ghcr.io/${{ inputs.image_repository }}/${{ inputs.image_name }}" >> $GITHUB_ENV
       if: inputs.container_registry == 'ghcr'
 
     - name: Create tag from tag from github.ref_name
