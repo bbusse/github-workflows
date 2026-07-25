@@ -1,0 +1,63 @@
+name: Build OpenWrt
+
+on:
+  workflow_call:
+    inputs:
+      flavour:
+        description: Target flavour/architecture (e.g., x86_64)
+        required: false
+        default: x86_64
+        type: string
+      artifact_name:
+        description: Artifact name prefix to upload
+        required: false
+        default: openwrt
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-openwrt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggressive cleanup
+        run: |
+          sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift \
+                      /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android \
+                      /usr/local/share/chromium /opt/microsoft /opt/google \
+                      /opt/az /usr/local/share/powershell /opt/hostedtoolcache || true
+          docker system prune -af || true
+          docker builder prune -af || true
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout image-builder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: OpsBoost/image-builder
+          ref: dev
+          path: image-builder
+
+      - name: Build
+        run: |
+          sudo ./image-builder/image-builder install
+          image-builder build openwrt ${{ inputs.flavour }}
+          ls -al
+
+      # NOTE: these paths are specific to the x86_64 target build_dir/bin
+      # layout. Adding another flavour will need its own path here, since
+      # OpenWrt's build_dir/bin tree layout differs per target/arch.
+      - name: Upload disk image artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}-${{ inputs.flavour }}
+          path: openwrt/build_dir/target-x86_64_musl/linux-x86_64/tmp/openwrt-x86-64-*.img.gz
+
+      - name: Upload packages artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}-${{ inputs.flavour }}-packages
+          path: openwrt/bin/targets/x86/64/packages/*
