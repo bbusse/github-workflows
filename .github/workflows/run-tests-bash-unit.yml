@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       working_directory:
-        description: Directory where klue project root is located
+        description: Directory where the project root is located
         required: false
         default: .
         type: string
@@ -13,6 +13,36 @@ on:
         required: false
         default: true
         type: boolean
+      test_files:
+        description: Space separated list of bash_unit test files (relative to working_directory) to run
+        required: false
+        default: 'tests/test_klue.sh tests/test_no_copy_mode.sh'
+        type: string
+      install_klue_test_deps:
+        description: Install the terminal-recording toolchain (tmux, textimg, Go, Menlo font shim) needed by klue-style tests
+        required: false
+        default: true
+        type: boolean
+      build_container:
+        description: Build a container image from a Containerfile/Dockerfile before running tests
+        required: false
+        default: false
+        type: boolean
+      container_image_name:
+        description: Tag to build for the container image (required if build_container is true)
+        required: false
+        default: ''
+        type: string
+      container_file:
+        description: Path to the Containerfile/Dockerfile to build. Defaults to Containerfile if present, else Dockerfile
+        required: false
+        default: ''
+        type: string
+      container_build_context:
+        description: Build context for the container image
+        required: false
+        default: .
+        type: string
 
 permissions:
   contents: read
@@ -25,30 +55,49 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Build container image
+        if: inputs.enabled == true && inputs.build_container == true
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          CONTAINER_FILE="${{ inputs.container_file }}"
+          if [ -z "$CONTAINER_FILE" ]; then
+            if [ -f "Containerfile" ]; then
+              CONTAINER_FILE="Containerfile"
+            else
+              CONTAINER_FILE="Dockerfile"
+            fi
+          fi
+          docker build -t "${{ inputs.container_image_name }}" -f "$CONTAINER_FILE" "${{ inputs.container_build_context }}"
+
       - name: Install system dependencies
         if: inputs.enabled == true
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            tmux \
             curl \
+            python3
+
+      - name: Install klue test dependencies
+        if: inputs.enabled == true && inputs.install_klue_test_deps == true
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            tmux \
             lsof \
-            python3 \
             jq \
             fonts-dejavu-core
 
       - name: Install Go
-        if: inputs.enabled == true
+        if: inputs.enabled == true && inputs.install_klue_test_deps == true
         uses: actions/setup-go@v5
         with:
           go-version: stable
 
       - name: Install textimg
-        if: inputs.enabled == true
+        if: inputs.enabled == true && inputs.install_klue_test_deps == true
         run: go install github.com/jiro4989/textimg/v3@latest
 
       - name: Provide default stream font path expected by klue
-        if: inputs.enabled == true
+        if: inputs.enabled == true && inputs.install_klue_test_deps == true
         run: |
           sudo mkdir -p /System/Library/Fonts
           sudo ln -sf /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf /System/Library/Fonts/Menlo.ttc
@@ -67,5 +116,6 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: |
           echo "Using TERM=${TERM}"
-          /tmp/bash_unit/bash_unit tests/test_klue.sh
-          /tmp/bash_unit/bash_unit tests/test_no_copy_mode.sh
+          for test_file in ${{ inputs.test_files }}; do
+            /tmp/bash_unit/bash_unit "$test_file"
+          done
