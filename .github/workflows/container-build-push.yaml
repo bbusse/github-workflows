@@ -69,17 +69,17 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
+      uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
     - name: Set up Docker buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
     - name: Get short SHA
       id: short-sha
       run: echo "short_sha=`git rev-parse --short HEAD`" >> $GITHUB_OUTPUT
 
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
       with:
         aws-region: ${{ inputs.aws_region }}
         role-to-assume: ${{ inputs.aws_arn_role_to_assume }}
@@ -87,12 +87,12 @@ jobs:
 
     - name: Login to Amazon ECR
       id: ecr-login
-      uses: aws-actions/amazon-ecr-login@v2
+      uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
       if: inputs.container_registry == 'ecr'
 
     - name: Login to GitHub Container Registry
       id: login-ghcr
-      uses: docker/login-action@v3
+      uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -111,9 +111,12 @@ jobs:
 
     - name: Create tag from tag from github.ref_name
       id: ref-name
+      env:
+        REF_NAME: ${{ github.ref_name }}
+        SHORT_SHA: ${{ steps.short-sha.outputs.short_sha }}
+        RUN_NUMBER: ${{ github.run_number }}
       run: |
-        DEFAULT_TAG=${{ github.ref_name }}
-        echo "DEFAULT_TAG=${DEFAULT_TAG////-}_${{ steps.short-sha.outputs.short_sha }}_${{ github.run_number }}" >> $GITHUB_ENV
+        echo "DEFAULT_TAG=${REF_NAME////-}_${SHORT_SHA}_${RUN_NUMBER}" >> "$GITHUB_ENV"
 
     - name: Build additional tag rules
       id: additional-tags
@@ -126,11 +129,11 @@ jobs:
 
     - name: Extract metadata (tags, labels)
       id: extract-metadata
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
       with:
         images: ${{ env.repository }}
         tags: |
-          type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag == '' && true || false }}
+          type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
           type=raw,enable=true,priority=200,prefix=,suffix=,value=${{ env.DEFAULT_TAG }}
           type=raw,value=latest,enable=true
           type=sha,enable=true,priority=100,prefix=sha-,suffix=,format=long
@@ -152,7 +155,7 @@ jobs:
 
     - name: Build container and optionally push to registry
       id: container-build-push
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
       with:
         platforms: ${{ inputs.image_platforms }}
         file: ${{ steps.container_file.outputs.container_file }}
@@ -197,4 +200,4 @@ jobs:
       if: inputs.container_push_to_registry
 
     - name: Image digest
-      run: echo ${{ steps.container_build.outputs.digest }}
+      run: echo "${{ steps.container-build-push.outputs.digest }}"
