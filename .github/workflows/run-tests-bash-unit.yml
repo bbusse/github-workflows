@@ -67,7 +67,16 @@ jobs:
               CONTAINER_FILE="Dockerfile"
             fi
           fi
-          docker build -t "${{ inputs.container_image_name }}" -f "$CONTAINER_FILE" "${{ inputs.container_build_context }}"
+          # Use the same podman-preferred executor that test suites typically
+          # use to run the container, so the image ends up in the image store
+          # the tests will actually look in (podman and docker keep separate
+          # stores, and both are present on GitHub-hosted runners).
+          if command -v podman >/dev/null 2>&1; then
+            EXECUTOR=podman
+          else
+            EXECUTOR=docker
+          fi
+          "$EXECUTOR" build -t "${{ inputs.container_image_name }}" -f "$CONTAINER_FILE" "${{ inputs.container_build_context }}"
 
       - name: Install system dependencies
         if: inputs.enabled == true
