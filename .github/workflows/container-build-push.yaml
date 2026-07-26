@@ -165,7 +165,7 @@ jobs:
         push: ${{ inputs.container_push_to_registry }}
 
     - name: Run trivy repo vulnerability scan
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
       env:
         # Use AWS ECR repo for the trivy-db image, as GitHub's Container
         # Registry (ghcr.io) is returning a TOOMANYREQUESTS error.
@@ -180,7 +180,7 @@ jobs:
         severity: 'CRITICAL,HIGH'
 
     - name: Run trivy image vulnerability scan
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
       env:
         TAG: ${{ env.DEFAULT_TAG }}
         # Use AWS ECR repo for the trivy-db image, as GitHub's Container
