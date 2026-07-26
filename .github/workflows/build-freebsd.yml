@@ -12,10 +12,6 @@ on:
         required: false
         default: dev
         type: string
-    secrets:
-      GHCR_TOKEN:
-        description: Optional token for registry operations inside the VM
-        required: false
 
 permissions:
   contents: read

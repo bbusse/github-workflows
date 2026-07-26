@@ -13,10 +13,6 @@ on:
         required: false
         default: 4096
         type: number
-    secrets:
-      GHCR_TOKEN:
-        description: Optional token for registry operations inside the VM
-        required: false
 
 permissions:
   contents: read
