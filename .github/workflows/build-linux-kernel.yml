@@ -38,11 +38,13 @@ jobs:
           path: 'image-builder'
 
       - name: Build Linux Kernel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           sudo ./image-builder/image-builder install
           BUILD_USE_CONTAINER=1 \
           image-builder build linux-kernel ${{ inputs.config }}
-          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u $GITHUB_ACTOR --password-stdin
+          echo "$GH_TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           podman push ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
 
       - name: Extract kernel image from build container

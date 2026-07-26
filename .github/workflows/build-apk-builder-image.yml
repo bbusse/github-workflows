@@ -23,4 +23,3 @@ jobs:
       image_platforms: linux/amd64,linux/arm64
       image_tag: latest
       container_push_to_registry: true
-    secrets: inherit

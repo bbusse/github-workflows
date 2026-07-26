@@ -81,9 +81,10 @@ jobs:
       - name: Configure signing key
         env:
           KEY_NAME: ${{ inputs.key_name }}
+          ABUILD_PRIVATE_KEY: ${{ secrets.ABUILD_PRIVATE_KEY }}
         run: |
           mkdir -p /home/builder/.abuild
-          printf '%s\n' "${{ secrets.ABUILD_PRIVATE_KEY }}" > "/home/builder/.abuild/$KEY_NAME.rsa"
+          printf '%s\n' "$ABUILD_PRIVATE_KEY" > "/home/builder/.abuild/$KEY_NAME.rsa"
           chmod 600 "/home/builder/.abuild/$KEY_NAME.rsa"
           openssl rsa -in "/home/builder/.abuild/$KEY_NAME.rsa" -pubout -out "/home/builder/.abuild/$KEY_NAME.rsa.pub"
           cp "/home/builder/.abuild/$KEY_NAME.rsa.pub" /etc/apk/keys/
@@ -155,9 +156,10 @@ jobs:
       - name: Configure signing key
         env:
           KEY_NAME: ${{ inputs.key_name }}
+          ABUILD_PRIVATE_KEY: ${{ secrets.ABUILD_PRIVATE_KEY }}
         run: |
           mkdir -p /home/builder/.abuild
-          printf '%s\n' "${{ secrets.ABUILD_PRIVATE_KEY }}" > "/home/builder/.abuild/$KEY_NAME.rsa"
+          printf '%s\n' "$ABUILD_PRIVATE_KEY" > "/home/builder/.abuild/$KEY_NAME.rsa"
           chmod 600 "/home/builder/.abuild/$KEY_NAME.rsa"
           openssl rsa -in "/home/builder/.abuild/$KEY_NAME.rsa" -pubout -out "/home/builder/.abuild/$KEY_NAME.rsa.pub"
           cp "/home/builder/.abuild/$KEY_NAME.rsa.pub" /etc/apk/keys/
