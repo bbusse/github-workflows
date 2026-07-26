@@ -59,12 +59,15 @@ jobs:
           wait-interval: 10
 
       - name: Extract build artifact from build container
-        uses: bbusse/actions-docker-extract@latest
+        uses: bbusse/container-extract@v1
         id: extract
         with:
           image: ${{ inputs.image }}
-          path: ${{ inputs.filename }}
+          paths: ${{ inputs.filename }}
           platform: ${{ inputs.platform }}
+
+      - name: Move extracted artifact
+        run: mv "${{ steps.extract.outputs.destination }}/${{ inputs.filename }}" "${{ inputs.filename }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

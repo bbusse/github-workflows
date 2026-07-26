@@ -46,20 +46,25 @@ jobs:
           podman push ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
 
       - name: Extract kernel image from build container
-        uses: bbusse/actions-docker-extract@latest
+        uses: bbusse/container-extract@v1
         id: extract-image
         with:
           image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
-          path: /usr/src/linux/Image-${{ inputs.config }}
+          paths: usr/src/linux/Image-${{ inputs.config }}
           platform: linux/arm64
 
       - name: Extract kernel image checksum from build container
-        uses: bbusse/actions-docker-extract@latest
+        uses: bbusse/container-extract@v1
         id: extract-checksum
         with:
           image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
-          path: /usr/src/linux/Image-${{ inputs.config }}.sha384
+          paths: usr/src/linux/Image-${{ inputs.config }}.sha384
           platform: linux/arm64
+
+      - name: Move extracted files
+        run: |
+          mv "${{ steps.extract-image.outputs.destination }}/Image-${{ inputs.config }}" "Image-${{ inputs.config }}"
+          mv "${{ steps.extract-checksum.outputs.destination }}/Image-${{ inputs.config }}.sha384" "Image-${{ inputs.config }}.sha384"
 
       - name: Upload kernel image artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
