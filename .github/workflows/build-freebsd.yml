@@ -32,6 +32,7 @@ jobs:
           release: "${{ inputs.release }}"
           usesh: true
           sync: sshfs
+          sync-time: true
           run: |
             pkg install -y bash git sudo
             cd /tmp

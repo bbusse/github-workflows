@@ -29,6 +29,7 @@ jobs:
           mem: ${{ inputs.mem }}
           usesh: true
           sync: sshfs
+          sync-time: true
           run: |
             pkg install -y bash git sudo
             git clone -b "${{ inputs.image_builder_ref }}" --depth 1 https://github.com/opsboost/image-builder
