@@ -43,6 +43,16 @@ on:
         required: false
         default: .
         type: string
+      install_qemu_deps:
+        description: Install qemu-system-x86 and OVMF firmware needed by qemu-boot-style tests
+        required: false
+        default: false
+        type: boolean
+      download_artifact_name:
+        description: Name of a same-run workflow artifact to download into working_directory before running tests (e.g. a disk image produced by an earlier job in this workflow run)
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -110,6 +120,20 @@ jobs:
         run: |
           sudo mkdir -p /System/Library/Fonts
           sudo ln -sf /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf /System/Library/Fonts/Menlo.ttc
+
+      - name: Install qemu test dependencies
+        if: inputs.enabled == true && inputs.install_qemu_deps == true
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 \
+            ovmf
+
+      - name: Download artifact
+        if: inputs.enabled == true && inputs.download_artifact_name != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.download_artifact_name }}
+          path: ${{ inputs.working_directory }}
 
       - name: Install bash_unit
         if: inputs.enabled == true
