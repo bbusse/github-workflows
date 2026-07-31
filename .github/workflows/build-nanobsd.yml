@@ -28,7 +28,7 @@ jobs:
         with:
           mem: ${{ inputs.mem }}
           usesh: true
-          sync: sshfs
+          sync: no
           sync-time: true
           run: |
             pkg install -y bash git sudo
