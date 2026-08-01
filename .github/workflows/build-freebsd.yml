@@ -19,17 +19,24 @@ permissions:
 jobs:
   build-freebsd:
     runs-on: ubuntu-latest
-    name: Build FreeBSD ${{ inputs.release }}
+    name: Build FreeBSD ${{ inputs.release }} (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - name: Free disk space
         run: |
           curl -fsSL https://raw.githubusercontent.com/kou/arrow/e49d8ae15583ceff03237571569099a6ad62be32/ci/scripts/util_free_space.sh | bash
 
+      # arch is vmactions' own naming (x86_64/aarch64); the host
+      # runner stays x86_64 either way per vmactions' own guidance
       - name: Build FreeBSD in VM
         uses: vmactions/freebsd-vm@77ed28d336d03fe19a3f4f7266c1d2c4714dd79d # v1.5.2
         id: build
         with:
           release: "${{ inputs.release }}"
+          arch: ${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}
           usesh: true
           sync: sshfs
           sync-time: true
@@ -38,12 +45,22 @@ jobs:
             cd /tmp
             git clone --depth 1 -b "${{ inputs.image_builder_ref }}" https://github.com/opsboost/image-builder
             sudo ./image-builder/image-builder install
-            sudo image-builder build freebsd
+            sudo image-builder build freebsd ${{ matrix.arch }}
 
             cp /tmp/freebsd-src/freebsd-*.tar.xz "$GITHUB_WORKSPACE/"
+            cp "/tmp/freebsd-src/mini-memstick-${{ matrix.arch }}.img" "$GITHUB_WORKSPACE/"
 
       - name: Upload FreeBSD release archive
         uses: actions/upload-artifact@v4
         with:
-          name: freebsd-${{ inputs.release }}-${{ github.run_number }}
+          name: freebsd-${{ inputs.release }}-${{ matrix.arch }}-${{ github.run_number }}
           path: freebsd-*.tar.xz
+
+      # Separate from the full release archive above: a static
+      # filename the downstream boot test can download directly,
+      # rather than untarring the whole release tree just to boot it
+      - name: Upload FreeBSD mini-memstick image
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-${{ inputs.release }}-${{ matrix.arch }}-mini-memstick-${{ github.run_number }}
+          path: mini-memstick-${{ matrix.arch }}.img

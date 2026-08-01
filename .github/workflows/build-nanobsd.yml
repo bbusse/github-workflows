@@ -20,12 +20,19 @@ permissions:
 jobs:
   build-nanobsd:
     runs-on: ubuntu-latest
-    name: Build NanoBSD
+    name: Build NanoBSD (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     steps:
+      # arch is vmactions' own naming (x86_64/aarch64); the host
+      # runner stays x86_64 either way per vmactions' own guidance
       - name: Build NanoBSD
         uses: vmactions/freebsd-vm@77ed28d336d03fe19a3f4f7266c1d2c4714dd79d # v1.5.2
         id: build
         with:
+          arch: ${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}
           mem: ${{ inputs.mem }}
           usesh: true
           sync: sshfs
@@ -39,14 +46,16 @@ jobs:
             cd /tmp
             git clone -b "${{ inputs.image_builder_ref }}" --depth 1 https://github.com/opsboost/image-builder
             sudo ./image-builder/image-builder install
-            sudo image-builder build nanobsd
+            sudo image-builder build nanobsd ${{ matrix.arch }}
 
-            version="$(freebsd-version)"
             cp /usr/obj/nanobsd.full/_.disk.full \
-                "$GITHUB_WORKSPACE/nanobsd-amd64-full-${version}-${{ github.run_number }}.img"
+                "$GITHUB_WORKSPACE/nanobsd-${{ matrix.arch }}-full.img"
 
+      # A static filename inside the artifact keeps the downstream boot
+      # test's download step simple; the artifact name itself (which
+      # carries run_number) is what disambiguates across runs
       - name: Upload NanoBSD image
         uses: actions/upload-artifact@v4
         with:
-          name: nanobsd-amd64-full-${{ github.run_number }}
-          path: nanobsd-amd64-full-*.img
+          name: nanobsd-${{ matrix.arch }}-full-${{ github.run_number }}
+          path: nanobsd-${{ matrix.arch }}-full.img
