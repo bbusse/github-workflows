@@ -153,6 +153,11 @@ jobs:
       - name: Run bash_unit tests
         if: inputs.enabled == true
         working-directory: ${{ inputs.working_directory }}
+        # bash_unit otherwise cd's into the test file's own directory
+        # before running it, which breaks relative paths (like a
+        # downloaded disk-image artifact) that assume working_directory
+        env:
+          STICK_TO_CWD: "true"
         run: |
           echo "Using TERM=${TERM}"
           for test_file in ${{ inputs.test_files }}; do
