@@ -135,6 +135,12 @@ jobs:
           name: ${{ inputs.download_artifact_name }}
           path: ${{ inputs.working_directory }}
 
+      # Debug
+      - name: List downloaded artifact contents
+        if: inputs.enabled == true && inputs.download_artifact_name != ''
+        working-directory: ${{ inputs.working_directory }}
+        run: ls -la
+
       - name: Install bash_unit
         if: inputs.enabled == true
         run: |
