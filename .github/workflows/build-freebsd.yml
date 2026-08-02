@@ -45,7 +45,7 @@ jobs:
             cd /tmp
             git clone --depth 1 -b "${{ inputs.image_builder_ref }}" https://github.com/opsboost/image-builder
             sudo ./image-builder/image-builder install
-            sudo image-builder build freebsd ${{ matrix.arch }}
+            sudo image-builder build freebsd ${{ matrix.arch }} "${{ inputs.release }}"
 
             cp /tmp/freebsd-src/freebsd-*.tar.xz "$GITHUB_WORKSPACE/"
             cp "/tmp/freebsd-src/mini-memstick-${{ matrix.arch }}.img" "$GITHUB_WORKSPACE/"
