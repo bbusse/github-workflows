@@ -1,0 +1,61 @@
+name: Build Alpine RPi
+
+on:
+  workflow_call:
+    inputs:
+      flavour:
+        description: Alpine target flavour (sway|containeros)
+        required: true
+        type: string
+      image_builder_ref:
+        description: Branch/tag for OpsBoost/image-builder
+        required: false
+        default: dev
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-alpine-rpi:
+    name: Build Alpine RPi ${{ inputs.flavour }} (${{ matrix.board_arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # aarch64: Pi 3/4/5 (64bit). armhf: Pi Zero/Zero W/1 (ARMv6,
+        # cannot run aarch64 or armv7 code at all)
+        board_arch: [aarch64, armhf]
+    steps:
+      - name: Aggressive cleanup
+        run: |
+          sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift \
+                      /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android \
+                      /usr/local/share/chromium /opt/microsoft /opt/google \
+                      /opt/az /usr/local/share/powershell /opt/hostedtoolcache || true
+          docker system prune -af || true
+          docker builder prune -af || true
+          df -h
+
+      - name: Checkout image-builder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: OpsBoost/image-builder
+          ref: ${{ inputs.image_builder_ref }}
+          path: image-builder
+
+      - name: Build
+        env:
+          ALPINE_ARCH: ${{ matrix.board_arch }}
+        run: |
+          ls -al
+          sudo ./image-builder/image-builder install
+          sudo -E image-builder create alpine-${{ inputs.flavour }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: alpine-rpi-${{ inputs.flavour }}-${{ matrix.board_arch }}-${{ github.run_number }}
+          path: |
+            alpine.img.xz
+            alpine.img.xz.sha384
