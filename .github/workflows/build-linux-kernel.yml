@@ -48,7 +48,7 @@ jobs:
           podman push ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
 
       - name: Extract kernel image from build container
-        uses: bbusse/container-extract@v1
+        uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
         id: extract-image
         with:
           image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
@@ -56,7 +56,7 @@ jobs:
           platform: linux/arm64
 
       - name: Extract kernel image checksum from build container
-        uses: bbusse/container-extract@v1
+        uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
         id: extract-checksum
         with:
           image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest

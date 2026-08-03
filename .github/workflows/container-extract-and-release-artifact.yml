@@ -51,7 +51,7 @@ jobs:
     runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
       - name: Wait for container release
-        uses: lewagon/wait-on-check-action@v1.3.1
+        uses: lewagon/wait-on-check-action@2271c86c146b96545b4e871b855e10ffa6f50773 # v1.9.0
         with:
           ref: ${{ github.ref }}
           check-regexp: ${{ inputs.wait-for-job }}
@@ -59,7 +59,7 @@ jobs:
           wait-interval: 10
 
       - name: Extract build artifact from build container
-        uses: bbusse/container-extract@v1
+        uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
         id: extract
         with:
           image: ${{ inputs.image }}
@@ -77,7 +77,7 @@ jobs:
 
       - name: Create GitHub Release (optional)
         if: ${{ inputs.release == true }}
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ inputs.release_tag || github.ref_name }}
           name: ${{ inputs.release_name || inputs.release_tag || github.ref_name }}
