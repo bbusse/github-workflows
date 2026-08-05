@@ -12,15 +12,21 @@ name: Binary Release
 #              v1-rcN  → v1       (finalise; strip rc)
 #              v0      → v1       (direct release without prior rc)
 #
-# Both paths commit the updated VERSION back to release_branch.
+# Both paths commit the updated VERSION back to release_branch - unless
+# version_branch is set (see below), in which case release_branch never
+# gets a VERSION file at all.
 #
-# Set version_branch to also commit the bumped VERSION file to a second
-# branch (e.g. release_branch: ci, version_branch: dev, when tags must be
-# cut from a branch that carries the workflow files but VERSION should stay
-# visible on the actual development branch too). This is an independent
-# single-file commit on that branch's own tip - not a merge of
-# release_branch's tree - so it won't drag along anything else that only
-# lives on release_branch.
+# Set version_branch when release_branch has to be a branch that only
+# carries CI plumbing (e.g. release_branch: ci, because tags must be cut
+# from wherever the workflow files live) but VERSION should live on the
+# actual development branch instead (e.g. version_branch: dev). When set,
+# VERSION is read from and written to version_branch only - release_branch
+# is used purely to cut the tag from and never gets a VERSION file or a
+# bump commit; the release tag itself is applied directly to the commit
+# that was already tagged rc-*/release-* to trigger this workflow. This is
+# an independent single-file commit on version_branch's own tip - not a
+# merge of release_branch's tree - so it won't drag along anything that
+# only lives on release_branch.
 #
 # Set always_release: true to skip the VERSION/tag scheme entirely and
 # instead release on every run, tagged the same way container-build-push
@@ -48,7 +54,7 @@ on:
         default: ci
         type: string
       version_branch:
-        description: Also commit the bumped VERSION file to this branch, as an independent commit on its own tip (e.g. the actual dev branch, when release_branch has to be a workflow-carrying branch like ci). Leave unset to only update release_branch.
+        description: Read/write VERSION on this branch instead of release_branch (e.g. the actual dev branch, when release_branch has to be a workflow-carrying branch like ci). When set, release_branch never gets a VERSION file - only the release tag itself. Leave unset to read/write VERSION on release_branch as usual.
         required: false
         default: ''
         type: string
@@ -91,9 +97,16 @@ jobs:
             exit 0
           fi
 
-          # Bootstrap: create VERSION at v0 if it does not exist yet
-          [[ -f VERSION ]] || echo "v0" > VERSION
-          current=$(cat VERSION)
+          # Read the current VERSION from version_branch when set (release_branch
+          # never carries one in that mode); otherwise from this checkout, i.e.
+          # release_branch, bootstrapping to v0 if it does not exist yet.
+          if [[ -n "${{ inputs.version_branch }}" ]]; then
+            git fetch origin "${{ inputs.version_branch }}"
+            current="$(git show "origin/${{ inputs.version_branch }}:VERSION" 2>/dev/null || echo v0)"
+          else
+            [[ -f VERSION ]] || echo "v0" > VERSION
+            current=$(cat VERSION)
+          fi
           tag="${GITHUB_REF_NAME}"
 
           if [[ "$current" =~ ^v([0-9]+)-rc([0-9]+)$ ]]; then
@@ -143,39 +156,12 @@ jobs:
             exit 1
           fi
 
-      - name: Update VERSION and push
-        if: ${{ !inputs.always_release }}
-        run: |
-          echo "${{ steps.ver.outputs.version_to_write }}" > VERSION
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION
-          git commit -m "Bump VERSION to ${{ steps.ver.outputs.version }}"
-          git push origin "HEAD:${{ inputs.release_branch }}"
-          # Tag the VERSION-bump commit with the release version so the
-          # GitHub Release points to the commit that has the correct VERSION file.
-          git tag "${{ steps.ver.outputs.version }}"
-          git push origin "${{ steps.ver.outputs.version }}"
-          git tag -f latest
-          git push -f origin latest
-
-      - name: Also commit VERSION to version_branch
-        if: ${{ !inputs.always_release && inputs.version_branch != '' && inputs.version_branch != inputs.release_branch }}
-        run: |
-          git fetch origin "${{ inputs.version_branch }}"
-          git checkout -B "${{ inputs.version_branch }}" "origin/${{ inputs.version_branch }}"
-          echo "${{ steps.ver.outputs.version_to_write }}" > VERSION
-          git add VERSION
-          git commit -m "Bump VERSION to ${{ steps.ver.outputs.version }}"
-          git push origin "HEAD:${{ inputs.version_branch }}"
-
-      - name: Move latest tag
-        if: ${{ inputs.always_release }}
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -f latest
-          git push -f origin latest
+      # Everything above this point is read-only. Everything below that
+      # mutates git state (VERSION commits, tags) is deliberately ordered to
+      # happen only once we know there is something real to release, so a
+      # failed/missing build doesn't leave a version bumped or tagged with
+      # nothing to show for it - exactly the kind of drift that otherwise
+      # forces manual tag cleanup before the next attempt can succeed.
 
       - name: Download build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -185,7 +171,9 @@ jobs:
           path: ./artifacts
 
       - name: Show downloaded artifacts
-        run: ls -lah ./artifacts
+        run: |
+          ls -lah ./artifacts
+          [ -n "$(ls -A ./artifacts 2>/dev/null)" ] || { echo "::error::No artifacts matched ${{ inputs.artifact_name }}-* - nothing to release." >&2; exit 1; }
 
       - name: Stage versioned and latest release files
         run: |
@@ -205,16 +193,54 @@ jobs:
           done
           chmod +x ./release-version/* ./release-latest/*
 
+      - name: Update VERSION and push
+        if: ${{ !inputs.always_release && inputs.version_branch == '' }}
+        run: |
+          echo "${{ steps.ver.outputs.version_to_write }}" > VERSION
+          git config user.name  "Björn Busse"
+          git config user.email "<bj.rn@baerlin.eu>"
+          git add VERSION
+          git commit -m "Bump VERSION to ${{ steps.ver.outputs.version }}"
+          git push origin "HEAD:${{ inputs.release_branch }}"
+          # Tag the VERSION-bump commit with the release version so the
+          # GitHub Release points to the commit that has the correct VERSION file.
+          git tag "${{ steps.ver.outputs.version }}"
+          git push origin "${{ steps.ver.outputs.version }}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ steps.ver.outputs.version }}
-          target_commitish: ${{ inputs.always_release && github.sha || '' }}
+          # In plain mode the version tag already exists (just created above,
+          # pointing at the VERSION-bump commit) so this is ignored. In
+          # always_release/version_branch mode there is no bump commit - the
+          # tag doesn't exist yet, so this tells the release action to create
+          # it pointing at the commit that was actually built.
+          target_commitish: ${{ (inputs.always_release || inputs.version_branch != '') && github.sha || '' }}
           name: ${{ inputs.binary_name }} ${{ steps.ver.outputs.version }}
           prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
           files: ./release-version/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Move latest tag
+        run: |
+          git config user.name  "Björn Busse"
+          git config user.email "<bj.rn@baerlin.eu>"
+          git tag -f latest
+          git push -f origin latest
+
+      - name: Also commit VERSION to version_branch
+        if: ${{ !inputs.always_release && inputs.version_branch != '' && inputs.version_branch != inputs.release_branch }}
+        run: |
+          git config user.name  "Björn Busse"
+          git config user.email "<bj.rn@baerlin.eu>"
+          git fetch origin "${{ inputs.version_branch }}"
+          git checkout -B "${{ inputs.version_branch }}" "origin/${{ inputs.version_branch }}"
+          echo "${{ steps.ver.outputs.version_to_write }}" > VERSION
+          git add VERSION
+          git commit -m "Bump VERSION to ${{ steps.ver.outputs.version }}"
+          git push origin "HEAD:${{ inputs.version_branch }}"
 
       - name: Create/update latest Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
