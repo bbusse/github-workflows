@@ -14,6 +14,14 @@ name: Binary Release
 #
 # Both paths commit the updated VERSION back to release_branch.
 #
+# Set version_branch to also commit the bumped VERSION file to a second
+# branch (e.g. release_branch: ci, version_branch: dev, when tags must be
+# cut from a branch that carries the workflow files but VERSION should stay
+# visible on the actual development branch too). This is an independent
+# single-file commit on that branch's own tip - not a merge of
+# release_branch's tree - so it won't drag along anything else that only
+# lives on release_branch.
+#
 # Set always_release: true to skip the VERSION/tag scheme entirely and
 # instead release on every run, tagged the same way container-build-push
 # tags images: <branch>_<short-sha>_<run-number>, plus a rolling "latest"
@@ -38,6 +46,11 @@ on:
         description: Branch to commit the updated VERSION file to
         required: false
         default: ci
+        type: string
+      version_branch:
+        description: Also commit the bumped VERSION file to this branch, as an independent commit on its own tip (e.g. the actual dev branch, when release_branch has to be a workflow-carrying branch like ci). Leave unset to only update release_branch.
+        required: false
+        default: ''
         type: string
       always_release:
         description: Skip the VERSION/tag scheme and always release, tagged like container-build-push (<branch>_<short-sha>_<run-number> plus a rolling latest)
@@ -145,6 +158,16 @@ jobs:
           git push origin "${{ steps.ver.outputs.version }}"
           git tag -f latest
           git push -f origin latest
+
+      - name: Also commit VERSION to version_branch
+        if: ${{ !inputs.always_release && inputs.version_branch != '' && inputs.version_branch != inputs.release_branch }}
+        run: |
+          git fetch origin "${{ inputs.version_branch }}"
+          git checkout -B "${{ inputs.version_branch }}" "origin/${{ inputs.version_branch }}"
+          echo "${{ steps.ver.outputs.version_to_write }}" > VERSION
+          git add VERSION
+          git commit -m "Bump VERSION to ${{ steps.ver.outputs.version }}"
+          git push origin "HEAD:${{ inputs.version_branch }}"
 
       - name: Move latest tag
         if: ${{ inputs.always_release }}

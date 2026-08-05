@@ -176,7 +176,14 @@ jobs:
       - name: Stage package
         run: |
           mkdir -p ./out
-          find /home/builder/packages -name '*.apk' -exec cp {} ./out/ \;
+          # abuild's own filename (<pkgname>-<pkgver>-r<pkgrel>.apk) doesn't
+          # encode the architecture, so amd64 and arm64 builds produce
+          # identically-named files; suffix it here so release.yml's
+          # merge-multiple artifact download doesn't have one overwrite the
+          # other.
+          find /home/builder/packages -name '*.apk' | while read -r f; do
+            cp "$f" "./out/$(basename "$f" .apk).${ALPINE_ARCH}.apk"
+          done
           ls -lah ./out
 
       - name: Upload apk artifact
@@ -272,7 +279,11 @@ jobs:
       - name: Stage package
         run: |
           mkdir -p ./out
-          find /home/builder/packages -name '*.apk' -exec cp {} ./out/ \;
+          # See the matching comment in build-apk-amd64's Stage package step:
+          # abuild's own filename doesn't encode the architecture.
+          find /home/builder/packages -name '*.apk' | while read -r f; do
+            cp "$f" "./out/$(basename "$f" .apk).${ALPINE_ARCH}.apk"
+          done
           ls -lah ./out
 
       - name: Upload apk artifact
@@ -291,6 +302,8 @@ jobs:
   build-apk-arm64-from-source:
     if: ${{ inputs.build_from_source }}
     runs-on: ubuntu-24.04-arm
+    env:
+      ALPINE_ARCH: aarch64
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -332,7 +345,11 @@ jobs:
       - name: Stage package
         run: |
           mkdir -p ./out
-          find ./packages -name '*.apk' -exec cp {} ./out/ \;
+          # See the matching comment in build-apk-amd64's Stage package step:
+          # abuild's own filename doesn't encode the architecture.
+          find ./packages -name '*.apk' | while read -r f; do
+            cp "$f" "./out/$(basename "$f" .apk).${ALPINE_ARCH}.apk"
+          done
           ls -lah ./out
 
       - name: Upload apk artifact
