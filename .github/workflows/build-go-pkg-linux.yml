@@ -3,27 +3,94 @@ name: Linux Go Package Build
 on:
   workflow_call:
     inputs:
+      repository:
+        description: Repository to check out and build from (defaults to the calling repository)
+        required: false
+        default: ''
+        type: string
+      ref:
+        description: Git ref (branch, tag, or SHA) to check out; defaults to the repository's default branch
+        required: false
+        default: ''
+        type: string
+      binary_name:
+        description: Go binary filename to build (defaults to artifact_name)
+        required: false
+        type: string
+        default: ''
       artifact_name:
         required: true
         type: string
+      working_directory:
+        description: Directory (relative to the checked-out repository) containing the Go package to build
+        required: false
+        default: .
+        type: string
+      go_version:
+        description: Go toolchain version
+        required: false
+        default: 'stable'
+        type: string
 
 jobs:
-  build-linux:
+  build-linux-amd64:
     runs-on: ubuntu-latest
-    name: Linux Build
+    env:
+      GOOS: linux
+      GOARCH: amd64
+      CGO_ENABLED: 0
+      ARTIFACT_SUFFIX: linux-amd64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository != '' && inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ inputs.go_version }}
+
       - name: Build
+        working-directory: ${{ inputs.working_directory }}
         run: |
-          sudo apt install golang-go
-          pwd
-          ls -lah
-          go build -o ${{ inputs.artifact_name }}
-          tar -cJvf ${{ inputs.artifact_name }}-linux-amd64.tar.xz ${{ inputs.artifact_name }}
-          ls -lah
+          BIN="${{ inputs.binary_name }}"
+          [ -n "$BIN" ] || BIN="${{ inputs.artifact_name }}"
+          go build -o "$BIN" .
+          tar -cJf "${{ inputs.artifact_name }}-${ARTIFACT_SUFFIX}.tar.xz" "$BIN"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact_name }}-linux-amd64.tar.xz
-          path: ${{ inputs.artifact_name }}-linux-amd64.tar.xz
+          path: ${{ inputs.working_directory }}/${{ inputs.artifact_name }}-linux-amd64.tar.xz
+
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+    env:
+      GOOS: linux
+      GOARCH: arm64
+      CGO_ENABLED: 0
+      ARTIFACT_SUFFIX: linux-arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository != '' && inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - name: Build
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          BIN="${{ inputs.binary_name }}"
+          [ -n "$BIN" ] || BIN="${{ inputs.artifact_name }}"
+          go build -o "$BIN" .
+          tar -cJf "${{ inputs.artifact_name }}-${ARTIFACT_SUFFIX}.tar.xz" "$BIN"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}-linux-arm64.tar.xz
+          path: ${{ inputs.working_directory }}/${{ inputs.artifact_name }}-linux-arm64.tar.xz
