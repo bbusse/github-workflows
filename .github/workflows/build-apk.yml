@@ -4,39 +4,65 @@ name: Build Alpine Package
 # with musl: true) into a signed Alpine (.apk) package, using our own
 # apk-builder container image (see containers/apk-builder/Containerfile and
 # build-apk-builder-image.yml).
+#
+# Set bundle_tarball: true to package a linux-*-musl.tar.gz bundle instead
+# (binary + shared libs + a <binary_name>-launcher.sh entrypoint, produced
+# e.g. by extracting a container image build via container-extract-artifacts.yml).
+# The whole bundle is installed under /usr/lib/<binary_name>/ and
+# /usr/bin/<binary_name> is symlinked to its launcher script.
+#
+# Set build_from_source: true to check out the calling repository and build
+# its own committed APKBUILD directly (abuild compiles from source itself -
+# no prebuilt artifact download, no synthesized APKBUILD, and pkgver/pkgrel/
+# pkgdesc/depends/etc. all come from that file, not from workflow inputs).
+# Since real compilation happens, the arm64 job runs on a native arm64
+# runner rather than just relabeling an x86-built package.
 
 on:
   workflow_call:
     inputs:
       artifact_name:
-        description: Artifact name prefix the linux-*-musl binaries were uploaded under
-        required: true
+        description: Artifact name prefix the linux-*-musl binaries were uploaded under (ignored when build_from_source is set)
+        required: false
+        default: ''
         type: string
       binary_name:
-        description: Binary filename inside the artifact (also used as pkgname)
-        required: true
+        description: Binary filename inside the artifact (also used as pkgname); ignored when build_from_source is set
+        required: false
+        default: ''
         type: string
+      bundle_tarball:
+        description: Package a linux-*-musl tarball bundle (binary + libs + <binary_name>-launcher.sh) instead of a bare binary
+        required: false
+        default: false
+        type: boolean
+      build_from_source:
+        description: Check out this repository and build its own committed APKBUILD directly, instead of packaging a prebuilt artifact
+        required: false
+        default: false
+        type: boolean
       version:
-        description: Version to package (e.g. v1, v1-rc0); normalised into an Alpine pkgver
-        required: true
+        description: Version to package (e.g. v1, v1-rc0); normalised into an Alpine pkgver. Ignored when build_from_source is set (pkgver comes from APKBUILD).
+        required: false
+        default: ''
         type: string
       pkgdesc:
-        description: Short package description
+        description: Short package description (ignored when build_from_source is set)
         required: false
         default: ''
         type: string
       pkgurl:
-        description: Upstream project URL
+        description: Upstream project URL (ignored when build_from_source is set)
         required: false
         default: ''
         type: string
       license:
-        description: SPDX license identifier
+        description: SPDX license identifier (ignored when build_from_source is set)
         required: false
         default: MIT
         type: string
       pkgrel:
-        description: Alpine package release number
+        description: Alpine package release number (ignored when build_from_source is set)
         required: false
         default: '0'
         type: string
@@ -72,7 +98,14 @@ jobs:
       ALPINE_ARCH: x86_64
       ARTIFACT_SUFFIX: linux-amd64-musl
     steps:
+      - name: Checkout
+        if: ${{ inputs.build_from_source }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ./work
+
       - name: Download build artifact
+        if: ${{ !inputs.build_from_source }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}
@@ -93,10 +126,9 @@ jobs:
           chown -R builder:abuild /home/builder/.abuild
 
       - name: Write APKBUILD
+        if: ${{ !inputs.build_from_source }}
         working-directory: ./work
         run: |
-          mv "${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}" "${{ inputs.binary_name }}"
-          chmod +x "${{ inputs.binary_name }}"
           PKGVER="$(echo "${{ inputs.version }}" | sed -E 's/^[vV]//; s/-/_/g')"
           {
             echo "pkgname=${{ inputs.binary_name }}"
@@ -110,15 +142,34 @@ jobs:
             echo 'source=""'
             echo 'options="!check !strip !tracedeps"'
             echo ''
-            echo 'package() {'
-            echo "    install -Dm755 \"\$startdir/${{ inputs.binary_name }}\" \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
-            echo '}'
           } > APKBUILD
+
+          if [[ "${{ inputs.bundle_tarball }}" == "true" ]]; then
+            mkdir -p bundle
+            tar -xzf "${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}" -C bundle
+            {
+              echo 'package() {'
+              echo "    mkdir -p \"\$pkgdir\"/usr/lib/${{ inputs.binary_name }}"
+              echo "    cp -a \"\$startdir\"/bundle/${{ inputs.binary_name }}/. \"\$pkgdir\"/usr/lib/${{ inputs.binary_name }}/"
+              echo "    mkdir -p \"\$pkgdir\"/usr/bin"
+              echo "    ln -s /usr/lib/${{ inputs.binary_name }}/${{ inputs.binary_name }}-launcher.sh \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
+              echo '}'
+            } >> APKBUILD
+          else
+            mv "${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}" "${{ inputs.binary_name }}"
+            chmod +x "${{ inputs.binary_name }}"
+            {
+              echo 'package() {'
+              echo "    install -Dm755 \"\$startdir/${{ inputs.binary_name }}\" \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
+              echo '}'
+            } >> APKBUILD
+          fi
           cat APKBUILD
 
       - name: Build package
         working-directory: ./work
         run: |
+          apk update
           chown -R builder:abuild .
           sudo -u builder -H sh -c 'abuild checksum && abuild -r'
 
@@ -131,15 +182,19 @@ jobs:
       - name: Upload apk artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.artifact_name }}-apk-x86_64
+          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-x86_64
           path: ./out/*.apk
 
+  # Only for bundle/plain packaging (!build_from_source): abuild never
+  # compiles or executes the target binary in that case, it just copies it
+  # into a package (arch=aarch64 is metadata only), so it's safe - and
+  # necessary - to run this on the same x64 runner as build-apk-amd64,
+  # sidestepping GitHub's restriction that JS actions in Alpine containers
+  # only work on x64 Linux runners. build_from_source needs real arm64
+  # hardware instead - see build-apk-arm64-from-source below, which can't
+  # use a job-level container for the same JS-actions-on-arm64 reason.
   build-apk-arm64:
-    # Native ARM64 hardware isn't needed here: abuild never compiles or
-    # executes the target binary, it just copies the prebuilt one into a
-    # package (arch=aarch64 is metadata only). Running on the same x64
-    # runner as build-apk-amd64 also sidesteps GitHub's restriction that
-    # JS actions in Alpine containers only work on x64 Linux runners.
+    if: ${{ !inputs.build_from_source }}
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.apk_builder_image }}
@@ -170,8 +225,6 @@ jobs:
       - name: Write APKBUILD
         working-directory: ./work
         run: |
-          mv "${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}" "${{ inputs.binary_name }}"
-          chmod +x "${{ inputs.binary_name }}"
           PKGVER="$(echo "${{ inputs.version }}" | sed -E 's/^[vV]//; s/-/_/g')"
           {
             echo "pkgname=${{ inputs.binary_name }}"
@@ -185,15 +238,34 @@ jobs:
             echo 'source=""'
             echo 'options="!check !strip !tracedeps"'
             echo ''
-            echo 'package() {'
-            echo "    install -Dm755 \"\$startdir/${{ inputs.binary_name }}\" \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
-            echo '}'
           } > APKBUILD
+
+          if [[ "${{ inputs.bundle_tarball }}" == "true" ]]; then
+            mkdir -p bundle
+            tar -xzf "${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}" -C bundle
+            {
+              echo 'package() {'
+              echo "    mkdir -p \"\$pkgdir\"/usr/lib/${{ inputs.binary_name }}"
+              echo "    cp -a \"\$startdir\"/bundle/${{ inputs.binary_name }}/. \"\$pkgdir\"/usr/lib/${{ inputs.binary_name }}/"
+              echo "    mkdir -p \"\$pkgdir\"/usr/bin"
+              echo "    ln -s /usr/lib/${{ inputs.binary_name }}/${{ inputs.binary_name }}-launcher.sh \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
+              echo '}'
+            } >> APKBUILD
+          else
+            mv "${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}" "${{ inputs.binary_name }}"
+            chmod +x "${{ inputs.binary_name }}"
+            {
+              echo 'package() {'
+              echo "    install -Dm755 \"\$startdir/${{ inputs.binary_name }}\" \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
+              echo '}'
+            } >> APKBUILD
+          fi
           cat APKBUILD
 
       - name: Build package
         working-directory: ./work
         run: |
+          apk update
           chown -R builder:abuild .
           sudo -u builder -H sh -c 'CARCH=aarch64 abuild checksum && CARCH=aarch64 abuild -r'
 
@@ -206,5 +278,65 @@ jobs:
       - name: Upload apk artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.artifact_name }}-apk-aarch64
+          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-aarch64
+          path: ./out/*.apk
+
+  # build_from_source's arm64 counterpart: needs real arm64 hardware since
+  # abuild actually compiles here (unlike build-apk-arm64 above, which just
+  # relabels a prebuilt binary). Can't use a job-level container on an arm64
+  # runner - GitHub doesn't support JS actions (checkout, up/download-artifact)
+  # inside an Alpine container there - so this runs the Alpine apk-builder
+  # image via a manual `podman run` for just the abuild step instead, with
+  # checkout and artifact upload happening on the bare runner.
+  build-apk-arm64-from-source:
+    if: ${{ inputs.build_from_source }}
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ./work
+
+      - name: Configure signing key
+        env:
+          KEY_NAME: ${{ inputs.key_name }}
+          ABUILD_PRIVATE_KEY: ${{ secrets.ABUILD_PRIVATE_KEY }}
+        run: |
+          mkdir -p ./abuild-home/.abuild
+          printf '%s\n' "$ABUILD_PRIVATE_KEY" > "./abuild-home/.abuild/$KEY_NAME.rsa"
+          chmod 600 "./abuild-home/.abuild/$KEY_NAME.rsa"
+          openssl rsa -in "./abuild-home/.abuild/$KEY_NAME.rsa" -pubout -out "./abuild-home/.abuild/$KEY_NAME.rsa.pub"
+          {
+            echo "PACKAGER_PRIVKEY=\"/home/builder/.abuild/$KEY_NAME.rsa\""
+            echo "PACKAGER=\"$PACKAGER\""
+          } > ./abuild-home/.abuild/abuild.conf
+
+      - name: Build package
+        run: |
+          mkdir -p ./packages
+          podman run --rm \
+            -e PACKAGER \
+            -v "$PWD/work:/work" \
+            -v "$PWD/abuild-home/.abuild:/home/builder/.abuild" \
+            -v "$PWD/packages:/home/builder/packages" \
+            -w /work \
+            "${{ inputs.apk_builder_image }}" \
+            sh -c '
+              set -e
+              cp "/home/builder/.abuild/${{ inputs.key_name }}.rsa.pub" /etc/apk/keys/
+              chown -R builder:abuild /work /home/builder/.abuild /home/builder/packages
+              apk update
+              sudo -u builder -H sh -c "abuild checksum && abuild -r"
+            '
+
+      - name: Stage package
+        run: |
+          mkdir -p ./out
+          find ./packages -name '*.apk' -exec cp {} ./out/ \;
+          ls -lah ./out
+
+      - name: Upload apk artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-aarch64
           path: ./out/*.apk
