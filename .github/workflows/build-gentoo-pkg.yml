@@ -1,0 +1,101 @@
+name: Build Gentoo Package (ebuild check)
+
+# Build-check only: registers the calling repo's own checked-in ebuild as a
+# local Portage overlay inside an official gentoo/stage3 container, generates
+# its Manifest fresh (crate hashes aren't committed to the calling repo - see
+# the comment above SRC_URI in a cargo.eclass-based ebuild), then emerges it
+# to confirm it actually configures, compiles and installs.
+#
+# Runtime deps are pulled from Gentoo's official binhost (--getbinpkg,
+# --usepkgonly) so this doesn't rebuild mesa/wayland/alsa-lib etc. from
+# source on every run; only the package itself (not on the binhost) compiles
+# from source. If the stage3 image's profile ever drifts from the binhost's,
+# --usepkgonly makes that fail fast with a missing-binpkg error instead of
+# silently falling back to a from-source rebuild of the world.
+#
+# No artifact is produced or uploaded - this is a CI correctness gate, not a
+# release path. Revisit if/when a Gentoo binhost/overlay release flow is
+# wanted (see build-apk.yml for the equivalent Alpine shape to mirror).
+
+on:
+  workflow_call:
+    inputs:
+      ebuild_path:
+        description: Path (relative to the calling repo root) to the checked-in .ebuild file, e.g. vju-0.1.0.ebuild
+        required: true
+        type: string
+      overlay_name:
+        description: Name the ebuild is registered under as a local Portage overlay
+        required: false
+        default: local-overlay
+        type: string
+      accept_keywords:
+        description: ACCEPT_KEYWORDS passed to emerge (matches the ebuild's own KEYWORDS, e.g. ~amd64)
+        required: false
+        default: '~amd64'
+        type: string
+      stage3_image:
+        description: Gentoo stage3 container image to build inside
+        required: false
+        default: docker.io/gentoo/stage3:latest
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-check:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.stage3_image }}
+    env:
+      OVERLAY_NAME: ${{ inputs.overlay_name }}
+      ACCEPT_KEYWORDS: ${{ inputs.accept_keywords }}
+      # Personal overlay ships no licenses/ dir of its own, so unknown
+      # per-dependency license identifiers (e.g. a crate using a license
+      # string not yet in ::gentoo's list) shouldn't block a build check.
+      ACCEPT_LICENSE: '*'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ./work
+
+      - name: Refresh Portage tree
+        run: emerge-webrsync
+
+      - name: Register local overlay
+        run: |
+          PKG_NAME="$(basename "${{ inputs.ebuild_path }}" | sed -E 's/-[0-9][^-]*\.ebuild$//')"
+          echo "PKG_NAME=$PKG_NAME" >> "$GITHUB_ENV"
+
+          mkdir -p "/var/db/repos/${OVERLAY_NAME}/${PKG_NAME}"
+          cp "./work/${{ inputs.ebuild_path }}" "/var/db/repos/${OVERLAY_NAME}/${PKG_NAME}/"
+
+          # The ebuild has no SRC_URI entry for vju's own source (no
+          # crates.io publish, no tagged release tarball) - it expects the
+          # checkout staged under ${FILESDIR}/vju-src and copies it into ${S}
+          # itself in a custom src_unpack(). Exclude .git/target: harmless to
+          # keep, just wasted copy time.
+          FILES_DIR="/var/db/repos/${OVERLAY_NAME}/${PKG_NAME}/files/vju-src"
+          mkdir -p "$FILES_DIR"
+          cp -a ./work/. "$FILES_DIR"/
+          rm -rf "$FILES_DIR/.git" "$FILES_DIR/target"
+
+          mkdir -p /etc/portage/repos.conf
+          {
+            echo "[${OVERLAY_NAME}]"
+            echo "location = /var/db/repos/${OVERLAY_NAME}"
+            echo "masters = gentoo"
+            echo "auto-sync = no"
+          } > "/etc/portage/repos.conf/${OVERLAY_NAME}.conf"
+
+      - name: Generate Manifest
+        working-directory: /var/db/repos/${{ env.OVERLAY_NAME }}/${{ env.PKG_NAME }}
+        run: ebuild ./*.ebuild manifest
+
+      - name: Install runtime/build deps from the official binhost
+        run: emerge --getbinpkg=y --usepkgonly=y --onlydeps --verbose "${OVERLAY_NAME}/${PKG_NAME}"
+
+      - name: Build check
+        run: emerge --verbose --nodeps "${OVERLAY_NAME}/${PKG_NAME}"

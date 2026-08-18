@@ -44,10 +44,15 @@ on:
         default: .
         type: string
       install_qemu_deps:
-        description: Install qemu-system-x86 and OVMF firmware needed by qemu-boot-style tests
+        description: Install qemu and UEFI firmware needed by qemu-boot-style tests
         required: false
         default: false
         type: boolean
+      test_arch:
+        description: Target architecture for qemu-boot-style tests (amd64 or arm64) - selects qemu deps and is exported as QEMU_ARCH
+        required: false
+        default: amd64
+        type: string
       download_artifact_name:
         description: Name of a same-run workflow artifact to download into working_directory before running tests (e.g. a disk image produced by an earlier job in this workflow run)
         required: false
@@ -124,9 +129,15 @@ jobs:
       - name: Install qemu test dependencies
         if: inputs.enabled == true && inputs.install_qemu_deps == true
         run: |
-          sudo apt-get install -y --no-install-recommends \
-            qemu-system-x86 \
-            ovmf
+          if [ "${{ inputs.test_arch }}" = "arm64" ]; then
+            sudo apt-get install -y --no-install-recommends \
+              qemu-system-arm \
+              qemu-efi-aarch64
+          else
+            sudo apt-get install -y --no-install-recommends \
+              qemu-system-x86 \
+              ovmf
+          fi
 
       - name: Download artifact
         if: inputs.enabled == true && inputs.download_artifact_name != ''
@@ -158,6 +169,7 @@ jobs:
         # downloaded disk-image artifact) that assume working_directory
         env:
           STICK_TO_CWD: "true"
+          QEMU_ARCH: ${{ inputs.test_arch }}
         run: |
           echo "Using TERM=${TERM}"
           for test_file in ${{ inputs.test_files }}; do

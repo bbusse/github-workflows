@@ -57,12 +57,22 @@ jobs:
           echo "$GH_TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           podman push ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
 
+      - name: Resolve kernel image file name
+        id: resolve-image
+        shell: bash
+        run: |
+          if [ "${{ inputs.platform }}" = "linux/amd64" ]; then
+            echo "name=bzImage-${{ inputs.config }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=Image-${{ inputs.config }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Extract kernel image from build container
         uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
         id: extract-image
         with:
           image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
-          paths: usr/src/linux/Image-${{ inputs.config }}
+          paths: usr/src/linux/${{ steps.resolve-image.outputs.name }}
           platform: ${{ inputs.platform }}
 
       - name: Extract kernel image checksum from build container
@@ -70,18 +80,18 @@ jobs:
         id: extract-checksum
         with:
           image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
-          paths: usr/src/linux/Image-${{ inputs.config }}.sha384
+          paths: usr/src/linux/${{ steps.resolve-image.outputs.name }}.sha384
           platform: ${{ inputs.platform }}
 
       - name: Move extracted files
         run: |
-          mv "${{ steps.extract-image.outputs.destination }}/Image-${{ inputs.config }}" "Image-${{ inputs.config }}"
-          mv "${{ steps.extract-checksum.outputs.destination }}/Image-${{ inputs.config }}.sha384" "Image-${{ inputs.config }}.sha384"
+          mv "${{ steps.extract-image.outputs.destination }}/${{ steps.resolve-image.outputs.name }}" "${{ steps.resolve-image.outputs.name }}"
+          mv "${{ steps.extract-checksum.outputs.destination }}/${{ steps.resolve-image.outputs.name }}.sha384" "${{ steps.resolve-image.outputs.name }}.sha384"
 
       - name: Upload kernel image artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-kernel-${{ inputs.config }}
           path: |
-            Image-${{ inputs.config }}
-            Image-${{ inputs.config }}.sha384
+            ${{ steps.resolve-image.outputs.name }}
+            ${{ steps.resolve-image.outputs.name }}.sha384

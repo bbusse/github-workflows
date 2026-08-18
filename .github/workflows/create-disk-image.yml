@@ -7,6 +7,16 @@ on:
         description: Target to create (e.g., gentoo)
         required: true
         type: string
+      arch:
+        description: Target architecture (e.g., amd64, arm64)
+        required: false
+        default: amd64
+        type: string
+      use_arm_runner:
+        description: Use ARM runner (ubuntu-24.04-arm) instead of ubuntu-latest
+        required: false
+        default: false
+        type: boolean
       wait-for-job:
         description: Regexp for job to wait for
         required: true
@@ -17,8 +27,8 @@ permissions:
 
 jobs:
   create_image:
-    name: Create image
-    runs-on: ubuntu-latest
+    name: Create image (${{ inputs.arch }})
+    runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
       - name: Wait for job
         uses: lewagon/wait-on-check-action@2271c86c146b96545b4e871b855e10ffa6f50773 # v1.9.0
@@ -65,10 +75,10 @@ jobs:
         run: |
           ls -al
           sudo ./image-builder/image-builder install
-          image-builder create "${{ steps.resolve.outputs.target }}"
+          image-builder create "${{ steps.resolve.outputs.target }}" "${{ inputs.arch }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: disk-image-${{ steps.resolve.outputs.target }}
+          name: disk-image-${{ steps.resolve.outputs.target }}-${{ inputs.arch }}
           path: ${{ steps.resolve.outputs.target }}.raw
