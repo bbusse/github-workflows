@@ -63,8 +63,8 @@ on:
         required: false
         default: false
         type: boolean
-      file_version_override:
-        description: Version string to embed in the versioned-channel filenames instead of the resolved VERSION/tag scheme (e.g. an upstream version baked into the artifact itself). Does not affect the release tag, the VERSION file, prerelease detection, or the "latest" channel - leave unset for the normal behavior.
+      version_override:
+        description: Use this exact string as the release version instead of computing one from the VERSION file (e.g. a version derived from the artifact's own upstream version). Replaces the VERSION/tag arithmetic entirely - it becomes the release tag, the release name, the versioned-channel filenames, and the value written back to VERSION. Prerelease is still decided by the rc-*/release-* trigger tag, and the "latest" channel is unaffected. Leave unset for the normal scheme.
         required: false
         default: ''
         type: string
@@ -99,6 +99,18 @@ jobs:
             version="${GITHUB_REF_NAME////-}_${short_sha}_${GITHUB_RUN_NUMBER}"
             echo "version=${version}"   >> "$GITHUB_OUTPUT"
             echo "prerelease=false"     >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ -n "${{ inputs.version_override }}" ]]; then
+            case "${GITHUB_REF_NAME}" in
+              rc-*)      prerelease="true" ;;
+              release-*) prerelease="false" ;;
+              *) echo "Unexpected tag: ${GITHUB_REF_NAME} (expected rc-* or release-*)" >&2; exit 1 ;;
+            esac
+            echo "version=${{ inputs.version_override }}"          >> "$GITHUB_OUTPUT"
+            echo "version_to_write=${{ inputs.version_override }}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=${prerelease}"                        >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -161,6 +173,14 @@ jobs:
             exit 1
           fi
 
+      - name: Ensure version tag does not already exist
+        run: |
+          git fetch origin --tags --quiet
+          if git rev-parse -q --verify "refs/tags/${{ steps.ver.outputs.version }}" >/dev/null; then
+            echo "::error::Tag ${{ steps.ver.outputs.version }} already exists. Delete it (git push origin :refs/tags/${{ steps.ver.outputs.version }}) or reconcile the VERSION file so this run resolves to an unused version." >&2
+            exit 1
+          fi
+
       # Everything above this point is read-only. Everything below that
       # mutates git state (VERSION commits, tags) is deliberately ordered to
       # happen only once we know there is something real to release, so a
@@ -182,7 +202,7 @@ jobs:
 
       - name: Stage versioned and latest release files
         env:
-          FILE_VERSION: ${{ inputs.file_version_override != '' && inputs.file_version_override || steps.ver.outputs.version }}
+          FILE_VERSION: ${{ steps.ver.outputs.version }}
         run: |
           mkdir -p ./release-version ./release-latest
           for f in ./artifacts/*; do
@@ -209,10 +229,10 @@ jobs:
           git config user.email "<bj.rn@baerlin.eu>"
           git add VERSION
           git commit -m "Bump VERSION to ${{ steps.ver.outputs.version }}"
-          git push origin "HEAD:${{ inputs.release_branch }}"
           # Tag the VERSION-bump commit with the release version so the
           # GitHub Release points to the commit that has the correct VERSION file.
           git tag "${{ steps.ver.outputs.version }}"
+          git push origin "HEAD:${{ inputs.release_branch }}"
           git push origin "${{ steps.ver.outputs.version }}"
 
       - name: Create GitHub Release
