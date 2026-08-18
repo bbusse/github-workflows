@@ -186,6 +186,7 @@ jobs:
               *.zip)    stem="${base%.zip}";    ext=".zip" ;;
               *.dmg)    stem="${base%.dmg}";    ext=".dmg" ;;
               *.apk)    stem="${base%.apk}";    ext=".apk" ;;
+              *.sha384) stem="${base%.sha384}"; ext=".sha384" ;;
               *)        stem="$base";           ext="" ;;
             esac
             cp "$f" "./release-version/${stem}-${{ steps.ver.outputs.version }}${ext}"
