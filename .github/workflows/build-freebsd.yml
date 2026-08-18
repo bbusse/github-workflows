@@ -18,19 +18,13 @@ permissions:
 
 jobs:
   build-freebsd:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.arch == 'arm64' && 'macos-14' || 'macos-13' }}
     name: Build FreeBSD ${{ inputs.release }} (${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
     steps:
-      - name: Free disk space
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/kou/arrow/e49d8ae15583ceff03237571569099a6ad62be32/ci/scripts/util_free_space.sh | bash
-
-      # arch is vmactions' own naming (x86_64/aarch64); the host
-      # runner stays x86_64 either way per vmactions' own guidance
       - name: Build FreeBSD in VM
         uses: vmactions/freebsd-vm@77ed28d336d03fe19a3f4f7266c1d2c4714dd79d # v1.5.2
         id: build
