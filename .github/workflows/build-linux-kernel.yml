@@ -18,6 +18,10 @@ on:
         required: false
         default: linux/arm64
         type: string
+    outputs:
+      kernel_version:
+        description: Kernel version reported by "make kernelversion" in the build container
+        value: ${{ jobs.build-linux-kernel.outputs.kernel_version }}
 
 permissions:
   contents: read
@@ -26,6 +30,8 @@ permissions:
 jobs:
   build-linux-kernel:
     runs-on: ${{ inputs.runs-on }}
+    outputs:
+      kernel_version: ${{ steps.kernel-version.outputs.version }}
     steps:
       - name: Aggressive cleanup
         run: |
@@ -82,6 +88,25 @@ jobs:
           image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
           paths: usr/src/linux/${{ steps.resolve-image.outputs.name }}.sha384
           platform: ${{ inputs.platform }}
+
+      - name: Extract kernel version from build container
+        uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
+        id: extract-version
+        with:
+          image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
+          paths: usr/src/linux/kernel-version
+          platform: ${{ inputs.platform }}
+
+      - name: Read kernel version
+        id: kernel-version
+        shell: bash
+        run: |
+          version="$(tr -d '[:space:]' < "${{ steps.extract-version.outputs.destination }}/kernel-version")"
+          if [ -z "${version}" ]; then
+            echo "::error::kernelversion file was empty" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Move extracted files
         run: |

@@ -63,6 +63,11 @@ on:
         required: false
         default: false
         type: boolean
+      file_version_override:
+        description: Version string to embed in the versioned-channel filenames instead of the resolved VERSION/tag scheme (e.g. an upstream version baked into the artifact itself). Does not affect the release tag, the VERSION file, prerelease detection, or the "latest" channel - leave unset for the normal behavior.
+        required: false
+        default: ''
+        type: string
     outputs:
       version:
         description: Resolved version for this release (e.g. v1, v1-rc0, or <branch>_<short-sha>_<run-number> when always_release is set)
@@ -176,6 +181,8 @@ jobs:
           [ -n "$(ls -A ./artifacts 2>/dev/null)" ] || { echo "::error::No artifacts matched ${{ inputs.artifact_name }}-* - nothing to release." >&2; exit 1; }
 
       - name: Stage versioned and latest release files
+        env:
+          FILE_VERSION: ${{ inputs.file_version_override != '' && inputs.file_version_override || steps.ver.outputs.version }}
         run: |
           mkdir -p ./release-version ./release-latest
           for f in ./artifacts/*; do
@@ -189,7 +196,7 @@ jobs:
               *.sha384) stem="${base%.sha384}"; ext=".sha384" ;;
               *)        stem="$base";           ext="" ;;
             esac
-            cp "$f" "./release-version/${stem}-${{ steps.ver.outputs.version }}${ext}"
+            cp "$f" "./release-version/${stem}-${FILE_VERSION}${ext}"
             cp "$f" "./release-latest/${stem}-latest${ext}"
           done
           chmod +x ./release-version/* ./release-latest/*
