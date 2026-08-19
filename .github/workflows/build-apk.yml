@@ -129,7 +129,7 @@ jobs:
         if: ${{ !inputs.build_from_source }}
         working-directory: ./work
         run: |
-          PKGVER="$(echo "${{ inputs.version }}" | sed -E 's/^[vV]//; s/-/_/g')"
+          PKGVER="$(echo "${{ inputs.version }}" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
           {
             echo "pkgname=${{ inputs.binary_name }}"
             echo "pkgver=$PKGVER"
@@ -232,7 +232,7 @@ jobs:
       - name: Write APKBUILD
         working-directory: ./work
         run: |
-          PKGVER="$(echo "${{ inputs.version }}" | sed -E 's/^[vV]//; s/-/_/g')"
+          PKGVER="$(echo "${{ inputs.version }}" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
           {
             echo "pkgname=${{ inputs.binary_name }}"
             echo "pkgver=$PKGVER"

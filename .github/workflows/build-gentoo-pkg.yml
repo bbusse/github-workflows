@@ -1,21 +1,23 @@
-name: Build Gentoo Package (ebuild check)
+name: Build Gentoo Package
 
-# Build-check only: registers the calling repo's own checked-in ebuild as a
-# local Portage overlay inside an official gentoo/stage3 container, generates
-# its Manifest fresh (crate hashes aren't committed to the calling repo - see
-# the comment above SRC_URI in a cargo.eclass-based ebuild), then emerges it
-# to confirm it actually configures, compiles and installs.
+# Registers the calling repo's own checked-in ebuild as a local Portage overlay inside an
+# official gentoo/stage3 container, generates its Manifest fresh (crate hashes aren't committed
+# to the calling repo - see the comment above SRC_URI in a cargo.eclass-based ebuild), then
+# emerges it to confirm it actually configures, compiles and installs.
 #
-# Runtime deps are pulled from Gentoo's official binhost (--getbinpkg,
-# --usepkgonly) so this doesn't rebuild mesa/wayland/alsa-lib etc. from
-# source on every run; only the package itself (not on the binhost) compiles
-# from source. If the stage3 image's profile ever drifts from the binhost's,
-# --usepkgonly makes that fail fast with a missing-binpkg error instead of
-# silently falling back to a from-source rebuild of the world.
+# Runtime deps are pulled from Gentoo's official binhost (--getbinpkg, --usepkgonly) so this
+# doesn't rebuild mesa/wayland/alsa-lib etc. from source on every run; only the package itself
+# (not on the binhost) compiles from source. If the stage3 image's profile ever drifts from the
+# binhost's, --usepkgonly makes that fail fast with a missing-binpkg error instead of silently
+# falling back to a from-source rebuild of the world.
 #
-# No artifact is produced or uploaded - this is a CI correctness gate, not a
-# release path. Revisit if/when a Gentoo binhost/overlay release flow is
-# wanted (see build-apk.yml for the equivalent Alpine shape to mirror).
+# Leave `version` unset for a plain build-check (every push): the checked-in ebuild's own
+# filename version is used as-is, nothing is uploaded. Set `version` (e.g. from
+# compute-version.yml's output) for a release build: the ebuild is renamed to that version
+# before building, and the resulting .gpkg.tar binary package is uploaded as
+# <artifact_name>-gentoo-amd64.
+#
+# amd64 only - no arm64 job, matching gentoo/stage3's default image.
 
 on:
   workflow_call:
@@ -23,6 +25,20 @@ on:
       ebuild_path:
         description: Path (relative to the calling repo root) to the checked-in .ebuild file, e.g. vju-0.1.0.ebuild
         required: true
+        type: string
+      category:
+        description: Gentoo category the package is filed under (e.g. x11-misc)
+        required: true
+        type: string
+      version:
+        description: Real version to build under (e.g. v1-rc0, from compute-version.yml). Normalised into a Gentoo PV (v stripped, - to _). Leave unset for a plain build-check using the checked-in ebuild's own filename version - nothing is uploaded in that case.
+        required: false
+        default: ''
+        type: string
+      artifact_name:
+        description: Artifact name prefix the built .gpkg.tar is uploaded under (only used when version is set)
+        required: false
+        default: ''
         type: string
       overlay_name:
         description: Name the ebuild is registered under as a local Portage overlay
@@ -44,12 +60,13 @@ permissions:
   contents: read
 
 jobs:
-  build-check:
+  build:
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.stage3_image }}
     env:
       OVERLAY_NAME: ${{ inputs.overlay_name }}
+      CATEGORY: ${{ inputs.category }}
       ACCEPT_KEYWORDS: ${{ inputs.accept_keywords }}
       # Personal overlay ships no licenses/ dir of its own, so unknown
       # per-dependency license identifiers (e.g. a crate using a license
@@ -64,23 +81,37 @@ jobs:
       - name: Refresh Portage tree
         run: emerge-webrsync
 
+      - name: Configure binpkg format
+        run: echo 'BINPKG_FORMAT="gpkg"' >> /etc/portage/make.conf
+
       - name: Register local overlay
         run: |
-          PKG_NAME="$(basename "${{ inputs.ebuild_path }}" | sed -E 's/-[0-9][^-]*\.ebuild$//')"
+          RAW_NAME="$(basename "${{ inputs.ebuild_path }}" .ebuild)"
+          PKG_NAME="$(echo "$RAW_NAME" | awk '{ sub(/-[0-9][^-]*$/, ""); print }')"
+          if [[ -n "${{ inputs.version }}" ]]; then
+            PKG_VERSION="$(echo "${{ inputs.version }}" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
+          else
+            PKG_VERSION="${RAW_NAME#${PKG_NAME}-}"
+          fi
           echo "PKG_NAME=$PKG_NAME" >> "$GITHUB_ENV"
+          echo "PKG_VERSION=$PKG_VERSION" >> "$GITHUB_ENV"
 
-          mkdir -p "/var/db/repos/${OVERLAY_NAME}/${PKG_NAME}"
-          cp "./work/${{ inputs.ebuild_path }}" "/var/db/repos/${OVERLAY_NAME}/${PKG_NAME}/"
+          PKG_DIR="/var/db/repos/${OVERLAY_NAME}/${CATEGORY}/${PKG_NAME}"
+          mkdir -p "$PKG_DIR"
+          cp "./work/${{ inputs.ebuild_path }}" "${PKG_DIR}/${PKG_NAME}-${PKG_VERSION}.ebuild"
 
           # The ebuild has no SRC_URI entry for vju's own source (no
           # crates.io publish, no tagged release tarball) - it expects the
           # checkout staged under ${FILESDIR}/vju-src and copies it into ${S}
           # itself in a custom src_unpack(). Exclude .git/target: harmless to
           # keep, just wasted copy time.
-          FILES_DIR="/var/db/repos/${OVERLAY_NAME}/${PKG_NAME}/files/vju-src"
+          FILES_DIR="${PKG_DIR}/files/vju-src"
           mkdir -p "$FILES_DIR"
           cp -a ./work/. "$FILES_DIR"/
           rm -rf "$FILES_DIR/.git" "$FILES_DIR/target"
+
+          mkdir -p "/var/db/repos/${OVERLAY_NAME}/profiles"
+          echo "${OVERLAY_NAME}" > "/var/db/repos/${OVERLAY_NAME}/profiles/repo_name"
 
           mkdir -p /etc/portage/repos.conf
           {
@@ -91,11 +122,27 @@ jobs:
           } > "/etc/portage/repos.conf/${OVERLAY_NAME}.conf"
 
       - name: Generate Manifest
-        working-directory: /var/db/repos/${{ env.OVERLAY_NAME }}/${{ env.PKG_NAME }}
+        working-directory: /var/db/repos/${{ env.OVERLAY_NAME }}/${{ env.CATEGORY }}/${{ env.PKG_NAME }}
         run: ebuild ./*.ebuild manifest
 
       - name: Install runtime/build deps from the official binhost
-        run: emerge --getbinpkg=y --usepkgonly=y --onlydeps --verbose "${OVERLAY_NAME}/${PKG_NAME}"
+        run: emerge --getbinpkg=y --usepkgonly=y --onlydeps --verbose "${CATEGORY}/${PKG_NAME}"
 
-      - name: Build check
-        run: emerge --verbose --nodeps "${OVERLAY_NAME}/${PKG_NAME}"
+      - name: Build
+        run: emerge --buildpkg=y --verbose --nodeps "${CATEGORY}/${PKG_NAME}"
+
+      - name: Stage package
+        if: ${{ inputs.version != '' }}
+        run: |
+          mkdir -p ./out
+          pkg="$(find "/var/cache/binpkgs/${CATEGORY}/${PKG_NAME}" -name '*.gpkg.tar' | head -n1)"
+          [ -n "$pkg" ] || { echo "::error::No .gpkg.tar produced under /var/cache/binpkgs/${CATEGORY}/${PKG_NAME}" >&2; exit 1; }
+          cp "$pkg" "./out/${PKG_NAME}-${PKG_VERSION}.amd64.gpkg.tar"
+          ls -lah ./out
+
+      - name: Upload package artifact
+        if: ${{ inputs.version != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name || github.event.repository.name }}-gentoo-amd64
+          path: ./out/*.gpkg.tar
