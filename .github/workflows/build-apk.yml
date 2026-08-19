@@ -189,7 +189,7 @@ jobs:
       - name: Upload apk artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-x86_64
+          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-amd64
           path: ./out/*.apk
 
   # Only for bundle/plain packaging (!build_from_source): abuild never
@@ -289,7 +289,7 @@ jobs:
       - name: Upload apk artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-aarch64
+          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-arm64
           path: ./out/*.apk
 
   # build_from_source's arm64 counterpart: needs real arm64 hardware since
@@ -355,5 +355,5 @@ jobs:
       - name: Upload apk artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-aarch64
+          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-arm64
           path: ./out/*.apk

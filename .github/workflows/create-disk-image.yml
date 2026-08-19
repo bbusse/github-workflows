@@ -17,6 +17,11 @@ on:
         required: false
         default: false
         type: boolean
+      verify_fs:
+        description: Fail the build if a filesystem consistency check fails
+        required: false
+        default: true
+        type: boolean
       verify_fs_stages:
         description: Run filesystem checks between sub-steps of the rootfs build to localise corruption
         required: false
@@ -79,6 +84,7 @@ jobs:
 
       - name: Build
         env:
+          VERIFY_FS: ${{ inputs.verify_fs && '1' || '0' }}
           VERIFY_FS_STAGES: ${{ inputs.verify_fs_stages && '1' || '0' }}
         run: |
           ls -al
