@@ -31,6 +31,7 @@ jobs:
     runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
       - name: Wait for job
+        if: github.event_name != 'workflow_dispatch'
         uses: lewagon/wait-on-check-action@2271c86c146b96545b4e871b855e10ffa6f50773 # v1.9.0
         with:
           ref: ${{ github.ref }}
