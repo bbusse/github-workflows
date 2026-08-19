@@ -17,6 +17,11 @@ on:
         required: false
         default: false
         type: boolean
+      verify_fs_stages:
+        description: Run filesystem checks between sub-steps of the rootfs build to localise corruption
+        required: false
+        default: false
+        type: boolean
       wait-for-job:
         description: Regexp for job to wait for
         required: true
@@ -73,6 +78,8 @@ jobs:
           path: image-builder
 
       - name: Build
+        env:
+          VERIFY_FS_STAGES: ${{ inputs.verify_fs_stages && '1' || '0' }}
         run: |
           ls -al
           sudo ./image-builder/image-builder install
