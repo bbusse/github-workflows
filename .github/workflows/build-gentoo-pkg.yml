@@ -131,7 +131,7 @@ jobs:
         run: ebuild ./*.ebuild manifest
 
       - name: Build
-        run: emerge --buildpkg=y --verbose "${CATEGORY}/${PKG_NAME}"
+        run: emerge --buildpkg=y --autounmask=y --autounmask-write=y --autounmask-continue=y --verbose "${CATEGORY}/${PKG_NAME}"
 
       - name: Stage package
         if: ${{ inputs.version != '' }}
