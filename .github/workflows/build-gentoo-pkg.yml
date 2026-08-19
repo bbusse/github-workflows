@@ -7,11 +7,14 @@ name: Build Gentoo Package
 # src_unpack()), generates the Manifest fresh (crate hashes aren't committed to the overlay),
 # then emerges it to confirm it actually configures, compiles and installs.
 #
-# Runtime deps are pulled from Gentoo's official binhost (--getbinpkg, --usepkgonly) so this
-# doesn't rebuild mesa/wayland/alsa-lib etc. from source on every run; only the package itself
-# (not on the binhost) compiles from source. If the stage3 image's profile ever drifts from the
-# binhost's, --usepkgonly makes that fail fast with a missing-binpkg error instead of silently
-# falling back to a from-source rebuild of the world.
+# Runtime deps are pulled from Gentoo's official binhost (--getbinpkg, --usepkg) so this
+# doesn't rebuild mesa/wayland/alsa-lib etc. from source on every run. --usepkgonly can't be
+# used here even though it would fail faster on binhost drift: it forces every atom in the
+# resolved graph, including the root target itself, into binary-only mode - but the root
+# package only ever exists as our local ebuild (no binpkg, since it was never built before),
+# so even --onlydeps can't select a candidate for it under a strict binary-only constraint just
+# to compute its dependency graph. --usepkg prefers binaries but allows ebuild fallback, which
+# is what lets the root resolve while dependencies still strongly prefer the binhost.
 #
 # Leave `version` unset for a plain build-check (every push): the overlay's own checked-in
 # ebuild filename version is used as-is, nothing is uploaded. Set `version` (e.g. from
@@ -132,7 +135,7 @@ jobs:
         run: ebuild ./*.ebuild manifest
 
       - name: Install runtime/build deps from the official binhost
-        run: emerge --getbinpkg=y --usepkgonly=y --onlydeps --verbose "${CATEGORY}/${PKG_NAME}"
+        run: emerge --getbinpkg=y --usepkg=y --onlydeps --verbose "${CATEGORY}/${PKG_NAME}"
 
       - name: Build
         run: emerge --buildpkg=y --verbose --nodeps "${CATEGORY}/${PKG_NAME}"
