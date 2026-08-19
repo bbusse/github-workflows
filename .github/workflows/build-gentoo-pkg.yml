@@ -1,9 +1,11 @@
 name: Build Gentoo Package
 
-# Registers the calling repo's own checked-in ebuild as a local Portage overlay inside an
-# official gentoo/stage3 container, generates its Manifest fresh (crate hashes aren't committed
-# to the calling repo - see the comment above SRC_URI in a cargo.eclass-based ebuild), then
-# emerges it to confirm it actually configures, compiles and installs.
+# Checks out a real Portage overlay repo (e.g. bbusse/bbusse-overlay) inside an official
+# gentoo/stage3 container, stages the calling repo's own checkout into the package's
+# files/vju-src (the ebuild has no SRC_URI entry for vju's own source - see the comment above
+# SRC_URI in a cargo.eclass-based ebuild - so it copies that into ${S} itself via a custom
+# src_unpack()), generates the Manifest fresh (crate hashes aren't committed to the overlay),
+# then emerges it to confirm it actually configures, compiles and installs.
 #
 # Runtime deps are pulled from Gentoo's official binhost (--getbinpkg, --usepkgonly) so this
 # doesn't rebuild mesa/wayland/alsa-lib etc. from source on every run; only the package itself
@@ -11,8 +13,8 @@ name: Build Gentoo Package
 # binhost's, --usepkgonly makes that fail fast with a missing-binpkg error instead of silently
 # falling back to a from-source rebuild of the world.
 #
-# Leave `version` unset for a plain build-check (every push): the checked-in ebuild's own
-# filename version is used as-is, nothing is uploaded. Set `version` (e.g. from
+# Leave `version` unset for a plain build-check (every push): the overlay's own checked-in
+# ebuild filename version is used as-is, nothing is uploaded. Set `version` (e.g. from
 # compute-version.yml's output) for a release build: the ebuild is renamed to that version
 # before building, and the resulting .gpkg.tar binary package is uploaded as
 # <artifact_name>-gentoo-amd64.
@@ -22,12 +24,17 @@ name: Build Gentoo Package
 on:
   workflow_call:
     inputs:
-      ebuild_path:
-        description: Path (relative to the calling repo root) to the checked-in .ebuild file, e.g. vju-0.1.0.ebuild
+      overlay_repo:
+        description: Overlay repository holding the ebuild, e.g. bbusse/bbusse-overlay
         required: true
         type: string
-      category:
-        description: Gentoo category the package is filed under (e.g. x11-misc)
+      overlay_ref:
+        description: Branch/ref of overlay_repo to check out
+        required: false
+        default: main
+        type: string
+      ebuild_path:
+        description: Path (relative to overlay_repo's root) to the checked-in .ebuild file, e.g. x11-misc/vju/vju-0.1.0.ebuild. Category and package name are derived from this path's directory structure.
         required: true
         type: string
       version:
@@ -39,11 +46,6 @@ on:
         description: Artifact name prefix the built .gpkg.tar is uploaded under (only used when version is set)
         required: false
         default: ''
-        type: string
-      overlay_name:
-        description: Name the ebuild is registered under as a local Portage overlay
-        required: false
-        default: local-overlay
         type: string
       accept_keywords:
         description: ACCEPT_KEYWORDS passed to emerge (matches the ebuild's own KEYWORDS, e.g. ~amd64)
@@ -65,18 +67,23 @@ jobs:
     container:
       image: ${{ inputs.stage3_image }}
     env:
-      OVERLAY_NAME: ${{ inputs.overlay_name }}
-      CATEGORY: ${{ inputs.category }}
       ACCEPT_KEYWORDS: ${{ inputs.accept_keywords }}
       # Personal overlay ships no licenses/ dir of its own, so unknown
       # per-dependency license identifiers (e.g. a crate using a license
       # string not yet in ::gentoo's list) shouldn't block a build check.
       ACCEPT_LICENSE: '*'
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: ./work
+
+      - name: Checkout overlay
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.overlay_repo }}
+          ref: ${{ inputs.overlay_ref }}
+          path: ./overlay-src
 
       - name: Refresh Portage tree
         run: emerge-webrsync
@@ -84,34 +91,33 @@ jobs:
       - name: Configure binpkg format
         run: echo 'BINPKG_FORMAT="gpkg"' >> /etc/portage/make.conf
 
-      - name: Register local overlay
+      - name: Register overlay
         run: |
-          RAW_NAME="$(basename "${{ inputs.ebuild_path }}" .ebuild)"
-          PKG_NAME="$(echo "$RAW_NAME" | awk '{ sub(/-[0-9][^-]*$/, ""); print }')"
+          OVERLAY_NAME="$(cat ./overlay-src/profiles/repo_name)"
+          PKG_DIR_REL="$(dirname "${{ inputs.ebuild_path }}")"
+          CATEGORY="$(dirname "$PKG_DIR_REL")"
+          PKG_NAME="$(basename "$PKG_DIR_REL")"
+          echo "OVERLAY_NAME=$OVERLAY_NAME" >> "$GITHUB_ENV"
+          echo "CATEGORY=$CATEGORY"         >> "$GITHUB_ENV"
+          echo "PKG_NAME=$PKG_NAME"         >> "$GITHUB_ENV"
+
+          mkdir -p "/var/db/repos/${OVERLAY_NAME}"
+          cp -a ./overlay-src/. "/var/db/repos/${OVERLAY_NAME}/"
+
+          PKG_DIR="/var/db/repos/${OVERLAY_NAME}/${PKG_DIR_REL}"
           if [[ -n "${{ inputs.version }}" ]]; then
             PKG_VERSION="$(echo "${{ inputs.version }}" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
+            mv "/var/db/repos/${OVERLAY_NAME}/${{ inputs.ebuild_path }}" "${PKG_DIR}/${PKG_NAME}-${PKG_VERSION}.ebuild"
           else
+            RAW_NAME="$(basename "${{ inputs.ebuild_path }}" .ebuild)"
             PKG_VERSION="${RAW_NAME#${PKG_NAME}-}"
           fi
-          echo "PKG_NAME=$PKG_NAME" >> "$GITHUB_ENV"
           echo "PKG_VERSION=$PKG_VERSION" >> "$GITHUB_ENV"
 
-          PKG_DIR="/var/db/repos/${OVERLAY_NAME}/${CATEGORY}/${PKG_NAME}"
-          mkdir -p "$PKG_DIR"
-          cp "./work/${{ inputs.ebuild_path }}" "${PKG_DIR}/${PKG_NAME}-${PKG_VERSION}.ebuild"
-
-          # The ebuild has no SRC_URI entry for vju's own source (no
-          # crates.io publish, no tagged release tarball) - it expects the
-          # checkout staged under ${FILESDIR}/vju-src and copies it into ${S}
-          # itself in a custom src_unpack(). Exclude .git/target: harmless to
-          # keep, just wasted copy time.
           FILES_DIR="${PKG_DIR}/files/vju-src"
           mkdir -p "$FILES_DIR"
           cp -a ./work/. "$FILES_DIR"/
           rm -rf "$FILES_DIR/.git" "$FILES_DIR/target"
-
-          mkdir -p "/var/db/repos/${OVERLAY_NAME}/profiles"
-          echo "${OVERLAY_NAME}" > "/var/db/repos/${OVERLAY_NAME}/profiles/repo_name"
 
           mkdir -p /etc/portage/repos.conf
           {
