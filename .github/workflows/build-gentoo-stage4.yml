@@ -11,6 +11,11 @@ on:
         description: Gentoo target flavour (containeros|sway)
         required: true
         type: string
+      overlays:
+        description: Space separated list of Portage overlay repo URLs needed by this flavour's sets
+        required: false
+        default: ''
+        type: string
       image_name:
         description: Base image name (default gentoo-stage4)
         required: false
@@ -70,6 +75,7 @@ jobs:
           IMAGE_REMOTE: ${{ inputs.registry }}/${{ inputs.image_name }}-${{ inputs.flavour }}-${{ inputs.arch }}:${{ inputs.tag }}
           REGISTRY: ${{ inputs.registry }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GENTOO_OVERLAYS: ${{ inputs.overlays }}
         run: |
           ls -al
           sudo ./image-builder/image-builder install
