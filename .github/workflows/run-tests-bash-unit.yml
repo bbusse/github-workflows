@@ -58,13 +58,18 @@ on:
         required: false
         default: ''
         type: string
+      use_arm_runner:
+        description: Use ARM runner (ubuntu-24.04-arm) instead of ubuntu-latest - needed for qemu-boot-style arm64 tests to avoid unreliable cross-arch TCG emulation on an x86_64 host
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
   test-bash-unit:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     env:
       TERM: xterm-256color
     steps:
