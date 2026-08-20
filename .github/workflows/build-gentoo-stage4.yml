@@ -76,6 +76,11 @@ jobs:
           REGISTRY: ${{ inputs.registry }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GENTOO_OVERLAYS: ${{ inputs.overlays }}
+          # image-builder's build_gentoo_stage4() clones gentoo-build
+          # itself via a plain URL with no ref - without this it always
+          # builds main's Containerfile/emerge.sh regardless of which
+          # branch actually triggered this workflow
+          GENTOO_BUILD_REF: ${{ github.ref_name }}
         run: |
           ls -al
           sudo ./image-builder/image-builder install

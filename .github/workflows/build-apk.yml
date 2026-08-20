@@ -71,6 +71,39 @@ on:
         required: false
         default: ghcr.io/bbusse/apk-builder:latest
         type: string
+      provides:
+        description: >-
+          Space-separated apk provides for the package, e.g. "/bin/sh cmd:sh".
+          A package that claims a canonical path this way can satisfy other
+          packages' file dependencies on it. Ignored when build_from_source is set.
+        required: false
+        default: ''
+        type: string
+      provider_priority:
+        description: >-
+          Priority used when several packages provide the same unversioned name;
+          apk swaps the lower-priority provider out rather than reporting a
+          conflict. Alpine's busybox-binsh uses 100. Ignored when build_from_source is set.
+        required: false
+        default: ''
+        type: string
+      symlinks:
+        description: >-
+          Space-separated <link>=<target> pairs to create in the package,
+          e.g. "/bin/sh=/usr/bin/brush". Ignored when build_from_source is set.
+        required: false
+        default: ''
+        type: string
+      alt_subpackage:
+        description: >-
+          When set, provides/provider_priority/symlinks go into a subpackage
+          named <pkgname>-<alt_subpackage> instead of the main package, which
+          is how Alpine ships busybox-binsh: the plain package installs
+          anywhere, and only the subpackage takes over the canonical path.
+          Ignored when build_from_source is set.
+        required: false
+        default: ''
+        type: string
       key_name:
         description: Basename (no extension) the signing key is written as; consumers must trust a matching <key_name>.rsa.pub, as apk looks up the key by this exact filename
         required: false
@@ -130,6 +163,17 @@ jobs:
         working-directory: ./work
         run: |
           PKGVER="$(echo "${{ inputs.version }}" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
+
+          # Emit `ln -s` lines for the symlinks input. $1 is the shell variable
+          # name the package function installs into, $2 an indent prefix.
+          emit_symlinks() {
+            local root="$1" indent="${2:-    }" pair link target
+            for pair in ${{ inputs.symlinks }}; do
+              link="${pair%%=*}"; target="${pair#*=}"
+              echo "${indent}mkdir -p \"${root}\"$(dirname "$link")"
+              echo "${indent}ln -s ${target} \"${root}\"${link}"
+            done
+          }
           {
             echo "pkgname=${{ inputs.binary_name }}"
             echo "pkgver=$PKGVER"
@@ -141,6 +185,16 @@ jobs:
             echo "maintainer=\"$PACKAGER\""
             echo 'source=""'
             echo 'options="!check !strip !tracedeps"'
+            if [[ -n "${{ inputs.alt_subpackage }}" ]]; then
+              echo "subpackages=\"\$pkgname-${{ inputs.alt_subpackage }}:_alt\""
+            else
+              if [[ -n "${{ inputs.provides }}" ]]; then
+                echo "provides=\"${{ inputs.provides }}\""
+              fi
+              if [[ -n "${{ inputs.provider_priority }}" ]]; then
+                echo "provider_priority=${{ inputs.provider_priority }}"
+              fi
+            fi
             echo ''
           } > APKBUILD
 
@@ -161,6 +215,29 @@ jobs:
             {
               echo 'package() {'
               echo "    install -Dm755 \"\$startdir/${{ inputs.binary_name }}\" \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
+              if [[ -z "${{ inputs.alt_subpackage }}" ]]; then
+                emit_symlinks '$pkgdir'
+              fi
+              echo '}'
+            } >> APKBUILD
+          fi
+
+          # An "alternatives" subpackage: the plain package is installable
+          # anywhere, and only this one claims the canonical path, so apk can
+          # swap it against whatever provided that path before.
+          if [[ -n "${{ inputs.alt_subpackage }}" ]]; then
+            {
+              echo ''
+              echo '_alt() {'
+              echo "    pkgdesc=\"${{ inputs.pkgdesc || inputs.binary_name }} (${{ inputs.alt_subpackage }})\""
+              echo "    depends=\"\$pkgname=\$pkgver-r\$pkgrel\""
+              if [[ -n "${{ inputs.provides }}" ]]; then
+                echo "    provides=\"${{ inputs.provides }}\""
+              fi
+              if [[ -n "${{ inputs.provider_priority }}" ]]; then
+                echo "    provider_priority=${{ inputs.provider_priority }}"
+              fi
+              emit_symlinks '$subpkgdir' '    '
               echo '}'
             } >> APKBUILD
           fi
@@ -233,6 +310,17 @@ jobs:
         working-directory: ./work
         run: |
           PKGVER="$(echo "${{ inputs.version }}" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
+
+          # Emit `ln -s` lines for the symlinks input. $1 is the shell variable
+          # name the package function installs into, $2 an indent prefix.
+          emit_symlinks() {
+            local root="$1" indent="${2:-    }" pair link target
+            for pair in ${{ inputs.symlinks }}; do
+              link="${pair%%=*}"; target="${pair#*=}"
+              echo "${indent}mkdir -p \"${root}\"$(dirname "$link")"
+              echo "${indent}ln -s ${target} \"${root}\"${link}"
+            done
+          }
           {
             echo "pkgname=${{ inputs.binary_name }}"
             echo "pkgver=$PKGVER"
@@ -244,6 +332,16 @@ jobs:
             echo "maintainer=\"$PACKAGER\""
             echo 'source=""'
             echo 'options="!check !strip !tracedeps"'
+            if [[ -n "${{ inputs.alt_subpackage }}" ]]; then
+              echo "subpackages=\"\$pkgname-${{ inputs.alt_subpackage }}:_alt\""
+            else
+              if [[ -n "${{ inputs.provides }}" ]]; then
+                echo "provides=\"${{ inputs.provides }}\""
+              fi
+              if [[ -n "${{ inputs.provider_priority }}" ]]; then
+                echo "provider_priority=${{ inputs.provider_priority }}"
+              fi
+            fi
             echo ''
           } > APKBUILD
 
@@ -264,6 +362,29 @@ jobs:
             {
               echo 'package() {'
               echo "    install -Dm755 \"\$startdir/${{ inputs.binary_name }}\" \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
+              if [[ -z "${{ inputs.alt_subpackage }}" ]]; then
+                emit_symlinks '$pkgdir'
+              fi
+              echo '}'
+            } >> APKBUILD
+          fi
+
+          # An "alternatives" subpackage: the plain package is installable
+          # anywhere, and only this one claims the canonical path, so apk can
+          # swap it against whatever provided that path before.
+          if [[ -n "${{ inputs.alt_subpackage }}" ]]; then
+            {
+              echo ''
+              echo '_alt() {'
+              echo "    pkgdesc=\"${{ inputs.pkgdesc || inputs.binary_name }} (${{ inputs.alt_subpackage }})\""
+              echo "    depends=\"\$pkgname=\$pkgver-r\$pkgrel\""
+              if [[ -n "${{ inputs.provides }}" ]]; then
+                echo "    provides=\"${{ inputs.provides }}\""
+              fi
+              if [[ -n "${{ inputs.provider_priority }}" ]]; then
+                echo "    provider_priority=${{ inputs.provider_priority }}"
+              fi
+              emit_symlinks '$subpkgdir' '    '
               echo '}'
             } >> APKBUILD
           fi

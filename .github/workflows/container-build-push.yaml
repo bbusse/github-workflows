@@ -57,6 +57,13 @@ on:
         description: The container registry to push to, one of ghcr / ecr
         required: false
         default: 'ecr'
+      build_args:
+        type: string
+        description: >-
+          Newline-separated KEY=VALUE build arguments, for recipes that build
+          more than one image out of one Containerfile.
+        required: false
+        default: ''
 
 jobs:
   build-and-push-container:
@@ -162,6 +169,7 @@ jobs:
         context: ${{ inputs.container_build_context }}
         tags: ${{ steps.extract-metadata.outputs.tags }}
         labels: ${{ steps.extract-metadata.outputs.labels }}
+        build-args: ${{ inputs.build_args }}
         cache-from: type=gha,scope=${{ inputs.image_name }}
         cache-to: type=gha,mode=max,scope=${{ inputs.image_name }}
         provenance: false
