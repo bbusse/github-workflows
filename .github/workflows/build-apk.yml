@@ -41,6 +41,11 @@ on:
         required: false
         default: false
         type: boolean
+      working_directory:
+        description: Directory (relative to the repository root) containing the APKBUILD to build. Only used when build_from_source is set.
+        required: false
+        default: '.'
+        type: string
       version:
         description: Version to package (e.g. v1, v1-rc0); normalised into an Alpine pkgver. Ignored when build_from_source is set (pkgver comes from APKBUILD).
         required: false
@@ -244,10 +249,10 @@ jobs:
           cat APKBUILD
 
       - name: Build package
-        working-directory: ./work
+        working-directory: ./work/${{ inputs.working_directory }}
         run: |
           apk update
-          chown -R builder:abuild .
+          chown -R builder:abuild "$GITHUB_WORKSPACE/work"
           sudo -u builder -H sh -c 'abuild checksum && abuild -r'
 
       - name: Stage package
@@ -453,7 +458,7 @@ jobs:
             -v "$PWD/work:/work" \
             -v "$PWD/abuild-home/.abuild:/home/builder/.abuild" \
             -v "$PWD/packages:/home/builder/packages" \
-            -w /work \
+            -w "/work/${{ inputs.working_directory }}" \
             "${{ inputs.apk_builder_image }}" \
             sh -c '
               set -e
