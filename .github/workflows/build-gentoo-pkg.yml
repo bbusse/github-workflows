@@ -56,12 +56,18 @@ on:
         required: false
         default: docker.io/gentoo/stage3:latest
         type: string
+      disable:
+        description: Skip the job entirely without removing it from the caller - a full from-source Gentoo build can take hours (e.g. compiling mesa), so this is here to turn it off on a per-caller basis without deleting the job block.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
   build:
+    if: ${{ !inputs.disable }}
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.stage3_image }}
