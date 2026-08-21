@@ -32,7 +32,7 @@ on:
         required: true
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -79,3 +79,15 @@ jobs:
         with:
           name: u-root-${{ inputs.arch }}
           path: output/*
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          if gh release view "${{ inputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "${{ inputs.tag }}" output/* --repo "${{ github.repository }}" --clobber
+          else
+            gh release create "${{ inputs.tag }}" output/* --repo "${{ github.repository }}" \
+                              --title "${{ inputs.tag }}" \
+                              --notes "Automated u-root build for ${{ inputs.arch }}"
+          fi

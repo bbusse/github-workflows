@@ -19,7 +19,12 @@ on:
       rust_toolchain:
         description: Rust toolchain channel/version
         required: false
-        default: stable
+        # Pinned rather than "stable": a stable-channel release has broken
+        # `cargo install cargo-zigbuild` before with reproducible SIGSEGVs in
+        # proc-macro2/quote/serde_core/rustix build scripts (a rustc codegen
+        # regression, not anything in this repo). Bump deliberately, not by
+        # just tracking whatever's currently "stable".
+        default: '1.97.1'
         type: string
       musl:
         description: Also build musl libc targets (linux-amd64-musl, linux-arm64-musl)
@@ -231,38 +236,41 @@ jobs:
     if: ${{ inputs.musl }}
     runs-on: ubuntu-latest
     env:
-      TARGET: x86_64-unknown-linux-musl
       ARTIFACT_SUFFIX: linux-amd64-musl
-      # musl targets default to a plain static (non-PIE) executable, which
-      # has no dynamic section at all - dlopen() (used by e.g. winit's
-      # wayland backend to load libwayland-client.so at runtime) can't
-      # work in that case. Static-PIE keeps the binary statically linked
-      # but retains enough loader machinery for dlopen() to function.
-      RUSTFLAGS: -C relocation-model=pic
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install musl toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends musl-tools
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable as of pin date; bump periodically for new Rust releases
-        with:
-          toolchain: ${{ inputs.rust_toolchain }}
-          targets: ${{ env.TARGET }}
-
+      # rustup's prebuilt musl targets are missing a PIE-capable C runtime
+      # object, so a rustup-installed toolchain can only link musl targets as
+      # plain static (no dynamic section at all - dlopen(), e.g. winit's
+      # wayland backend loading libwayland-client.so at runtime, can't work).
+      # Alpine's own native rust/cargo packages don't have this gap - their
+      # musl toolchain produces ET_DYN/PIE by default, no special flags
+      # needed - so build natively inside an Alpine container instead of
+      # cross-compiling with rustup. Matches build-linux-arm64-musl's same
+      # fix, and build-apk.yml's build-apk-arm64-from-source job, which
+      # already builds this way reliably.
+      # No --target: the container already runs natively for its own host
+      # arch (amd64-on-amd64 here), and passing --target explicitly - even
+      # when it names the same triple the container is already running as -
+      # makes cargo look up that triple as a separate, explicitly-installed
+      # target. Alpine's arm64 rust apk doesn't register one that way (see
+      # build-linux-arm64-musl), so build ambient/implicit on both jobs for
+      # symmetry, matching output path (target/release, not target/<TRIPLE>/release).
       - name: Build release binary
-        working-directory: ${{ inputs.working_directory }}
-        run: cargo build --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
+        run: |
+          podman run --rm \
+            -v "$PWD:/work" \
+            -w "/work/${{ inputs.working_directory }}" \
+            docker.io/library/alpine:3.24 \
+            sh -c "apk add --no-cache rust cargo && cargo build --release --locked --bin ${{ inputs.binary_name }}"
 
       - name: Stage artifact
         working-directory: ${{ inputs.working_directory }}
         run: |
           mkdir -p dist
-          cp "target/${{ env.TARGET }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+          cp "target/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
           chmod +x "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
 
       - name: Upload build artifact
@@ -273,46 +281,27 @@ jobs:
 
   build-linux-arm64-musl:
     if: ${{ inputs.musl }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     env:
-      TARGET: aarch64-unknown-linux-musl
       ARTIFACT_SUFFIX: linux-arm64-musl
-      ZIG_VERSION: "0.16.0"
-      ZIG_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
-      # See the matching comment in build-linux-amd64-musl: static-PIE
-      # instead of plain static so dlopen() works at runtime.
-      RUSTFLAGS: -C relocation-model=pic
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Zig
-        run: |
-          curl -fsSL -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
-          echo "${ZIG_SHA256}  zig.tar.xz" | sha256sum -c -
-          mkdir -p /opt/zig
-          tar -xJf zig.tar.xz -C /opt/zig --strip-components=1
-          echo "/opt/zig" >> "$GITHUB_PATH"
-          rm zig.tar.xz
-
-      - name: Install cargo-zigbuild
-        run: cargo install cargo-zigbuild --locked
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable as of pin date; bump periodically for new Rust releases
-        with:
-          toolchain: ${{ inputs.rust_toolchain }}
-          targets: ${{ env.TARGET }}
-
+      # No --target here either - see the comment in build-linux-amd64-musl.
       - name: Build release binary
-        working-directory: ${{ inputs.working_directory }}
-        run: cargo zigbuild --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
+        run: |
+          podman run --rm \
+            -v "$PWD:/work" \
+            -w "/work/${{ inputs.working_directory }}" \
+            docker.io/library/alpine:3.24 \
+            sh -c "apk add --no-cache rust cargo && cargo build --release --locked --bin ${{ inputs.binary_name }}"
 
       - name: Stage artifact
         working-directory: ${{ inputs.working_directory }}
         run: |
           mkdir -p dist
-          cp "target/${{ env.TARGET }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+          cp "target/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
           chmod +x "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
 
       - name: Upload build artifact
