@@ -73,3 +73,9 @@ jobs:
           echo "$GHCR_TOKEN" | podman login "$REGISTRY" -u "$GITHUB_ACTOR" --password-stdin
           podman tag "$IMAGE_LOCAL" "$IMAGE_REMOTE"
           podman push "$IMAGE_REMOTE"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: u-root-${{ inputs.arch }}
+          path: output/*
