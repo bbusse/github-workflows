@@ -233,6 +233,12 @@ jobs:
     env:
       TARGET: x86_64-unknown-linux-musl
       ARTIFACT_SUFFIX: linux-amd64-musl
+      # musl targets default to a plain static (non-PIE) executable, which
+      # has no dynamic section at all - dlopen() (used by e.g. winit's
+      # wayland backend to load libwayland-client.so at runtime) can't
+      # work in that case. Static-PIE keeps the binary statically linked
+      # but retains enough loader machinery for dlopen() to function.
+      RUSTFLAGS: -C relocation-model=pic
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -273,6 +279,9 @@ jobs:
       ARTIFACT_SUFFIX: linux-arm64-musl
       ZIG_VERSION: "0.16.0"
       ZIG_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+      # See the matching comment in build-linux-amd64-musl: static-PIE
+      # instead of plain static so dlopen() works at runtime.
+      RUSTFLAGS: -C relocation-model=pic
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
