@@ -157,6 +157,16 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: ls -la
 
+      # Artifact name follows disk-image-<target>-<arch>, and the file
+      # inside it is <target>-<arch>.raw (see create-disk-image.yml's
+      # upload-artifact step) - derive DISK_IMAGE so qemu-boot-style
+      # tests find the right image without hardcoding a target here
+      - name: Derive DISK_IMAGE from downloaded artifact
+        if: inputs.enabled == true && inputs.download_artifact_name != ''
+        env:
+          ARTIFACT_NAME: ${{ inputs.download_artifact_name }}
+        run: echo "DISK_IMAGE=${ARTIFACT_NAME#disk-image-}.raw" >> "$GITHUB_ENV"
+
       - name: Install bash_unit
         if: inputs.enabled == true
         run: |
