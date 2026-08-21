@@ -1,11 +1,11 @@
 name: Build Gentoo Package
 
 # Checks out a real Portage overlay repo (e.g. bbusse/bbusse-overlay) inside an official
-# gentoo/stage3 container, stages the calling repo's own checkout into the package's
-# files/vju-src (the ebuild has no SRC_URI entry for vju's own source - see the comment above
-# SRC_URI in a cargo.eclass-based ebuild - so it copies that into ${S} itself via a custom
-# src_unpack()), generates the Manifest fresh (crate hashes aren't committed to the overlay),
-# then emerges it to confirm it actually configures, compiles and installs.
+# gentoo/stage3 container, generates the Manifest fresh (crate hashes aren't committed to the
+# overlay), then emerges it to confirm it actually configures, compiles and installs. The
+# ebuild is self-sufficient - it fetches the actual package's own source itself (e.g. via
+# git-r3/EGIT_REPO_URI), same as it would for anyone running a plain `emerge` against this
+# overlay outside of this CI job.
 #
 # emerge resolves and builds the full dependency tree normally, source included where no
 # binary happens to be available - same as a real `emerge x11-misc/vju` on an actual Gentoo
@@ -78,11 +78,6 @@ jobs:
       # string not yet in ::gentoo's list) shouldn't block a build check.
       ACCEPT_LICENSE: '*'
     steps:
-      - name: Checkout source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: ./work
-
       - name: Checkout overlay
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -118,11 +113,6 @@ jobs:
             PKG_VERSION="${RAW_NAME#${PKG_NAME}-}"
           fi
           echo "PKG_VERSION=$PKG_VERSION" >> "$GITHUB_ENV"
-
-          FILES_DIR="${PKG_DIR}/files/vju-src"
-          mkdir -p "$FILES_DIR"
-          cp -a ./work/. "$FILES_DIR"/
-          rm -rf "$FILES_DIR/.git" "$FILES_DIR/target"
 
           mkdir -p /etc/portage/repos.conf
           {
