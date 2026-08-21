@@ -263,7 +263,7 @@ jobs:
           podman run --rm \
             -v "$PWD:/work" \
             -w "/work/${{ inputs.working_directory }}" \
-            docker.io/library/alpine:3.24 \
+            docker.io/library/alpine:3.24.1 \
             sh -c "apk add --no-cache rust cargo && cargo build --release --locked --bin ${{ inputs.binary_name }}"
 
       - name: Stage artifact
@@ -294,7 +294,7 @@ jobs:
           podman run --rm \
             -v "$PWD:/work" \
             -w "/work/${{ inputs.working_directory }}" \
-            docker.io/library/alpine:3.24 \
+            docker.io/library/alpine:3.24.1 \
             sh -c "apk add --no-cache rust cargo && cargo build --release --locked --bin ${{ inputs.binary_name }}"
 
       - name: Stage artifact
