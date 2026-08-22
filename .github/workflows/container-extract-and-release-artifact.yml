@@ -25,8 +25,13 @@ on:
         required: false
         type: string
       wait-for-job:
-        description: Regexp for job to wait for
-        required: true
+        description: >-
+          Regexp of the check to wait for before extracting, for callers
+          whose build runs in a separate workflow. Leave empty when the
+          caller already orders this job with needs: - the wait step is
+          then skipped rather than polling for a check that is complete.
+        required: false
+        default: ''
         type: string
       use_arm_runner:
         description: Use ARM runner
@@ -52,6 +57,7 @@ jobs:
     runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
       - name: Wait for container release
+        if: inputs.wait-for-job != ''
         uses: lewagon/wait-on-check-action@2271c86c146b96545b4e871b855e10ffa6f50773 # v1.9.0
         with:
           ref: ${{ github.ref }}
