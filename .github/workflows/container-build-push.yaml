@@ -64,10 +64,15 @@ on:
           more than one image out of one Containerfile.
         required: false
         default: ''
+      use_arm_runner:
+        description: Use ARM runner (ubuntu-24.04-arm) instead of ubuntu-latest
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build-and-push-container:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
