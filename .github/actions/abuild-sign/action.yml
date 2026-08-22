@@ -1,0 +1,36 @@
+name: Configure abuild signing key
+description: >-
+  Install the PEM-encoded RSA signing key into /home/builder/.abuild, derive
+  its public half into /etc/apk/keys, and point abuild.conf at both. For jobs
+  running inside the apk-builder container.
+
+inputs:
+  key_name:
+    description: Basename (no extension) the signing key is written as
+    required: true
+  abuild_private_key:
+    description: PEM-encoded RSA private key used to sign the built .apk packages
+    required: true
+  packager:
+    description: Value written as PACKAGER in abuild.conf
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Configure signing key
+      shell: bash
+      env:
+        KEY_NAME: ${{ inputs.key_name }}
+        ABUILD_PRIVATE_KEY: ${{ inputs.abuild_private_key }}
+        PACKAGER: ${{ inputs.packager }}
+      run: |
+        mkdir -p /home/builder/.abuild
+        printf '%s\n' "$ABUILD_PRIVATE_KEY" > "/home/builder/.abuild/$KEY_NAME.rsa"
+        chmod 600 "/home/builder/.abuild/$KEY_NAME.rsa"
+        openssl rsa -in "/home/builder/.abuild/$KEY_NAME.rsa" -pubout -out "/home/builder/.abuild/$KEY_NAME.rsa.pub"
+        cp "/home/builder/.abuild/$KEY_NAME.rsa.pub" /etc/apk/keys/
+        echo "PACKAGER_PRIVKEY=\"/home/builder/.abuild/$KEY_NAME.rsa\"" >> /home/builder/.abuild/abuild.conf
+        echo "PACKAGER=\"$PACKAGER\"" >> /home/builder/.abuild/abuild.conf
+        chown -R builder:abuild /home/builder/.abuild

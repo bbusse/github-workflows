@@ -1,0 +1,31 @@
+name: Stage built apk packages
+description: >-
+  Collect the .apk files abuild produced into ./out, suffixing each with the
+  Alpine arch. abuild's own filename (<pkgname>-<pkgver>-r<pkgrel>.apk) does
+  not encode the architecture, so amd64 and arm64 builds otherwise produce
+  identically-named files and release.yml's merge-multiple artifact download
+  has one overwrite the other.
+
+inputs:
+  packages_dir:
+    description: Directory abuild wrote packages to
+    required: false
+    default: /home/builder/packages
+  alpine_arch:
+    description: Alpine architecture name used as the filename suffix (x86_64, aarch64)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Stage package
+      shell: bash
+      env:
+        PACKAGES_DIR: ${{ inputs.packages_dir }}
+        ALPINE_ARCH: ${{ inputs.alpine_arch }}
+      run: |
+        mkdir -p ./out
+        find "$PACKAGES_DIR" -name '*.apk' | while read -r f; do
+          cp "$f" "./out/$(basename "$f" .apk).${ALPINE_ARCH}.apk"
+        done
+        ls -lah ./out
