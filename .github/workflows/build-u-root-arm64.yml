@@ -32,11 +32,11 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
   packages: write
 
 jobs:
-  build_stage4:
+  build-u-root:
     name: Build u-root (${{ inputs.arch }})
     runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
@@ -79,8 +79,3 @@ jobs:
         with:
           name: u-root-${{ inputs.arch }}
           path: output/*
-
-      # Release assets are published by the caller's
-      # container-extract-artifact.yml, which extracts them from the
-      # pushed image. Releasing here as well would put two publishers on
-      # the same tag, racing over identically named assets.

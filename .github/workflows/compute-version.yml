@@ -66,6 +66,7 @@ permissions:
 
 jobs:
   compute:
+    name: Compute
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}

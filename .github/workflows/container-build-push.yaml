@@ -72,6 +72,7 @@ on:
 
 jobs:
   build-and-push-container:
+    name: Build and push container
     runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     permissions:
       contents: read

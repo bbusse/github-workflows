@@ -67,6 +67,7 @@ permissions:
 
 jobs:
   build:
+    name: Build
     if: ${{ !inputs.disable }}
     runs-on: ubuntu-latest
     container:

@@ -52,6 +52,7 @@ permissions:
 
 jobs:
   build-macos-arm64:
+    name: Build macOS arm64
     runs-on: macos-latest
     env:
       TARGET: aarch64-apple-darwin
@@ -84,6 +85,7 @@ jobs:
           path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}
 
   build-macos-dmg:
+    name: Build macOS DMG
     if: ${{ inputs.dmg }}
     needs:
       - build-macos-arm64
@@ -118,6 +120,7 @@ jobs:
           archive: false
 
   build-linux-amd64:
+    name: Build Linux amd64
     runs-on: ubuntu-latest
     env:
       TARGET: x86_64-unknown-linux-gnu
@@ -150,6 +153,7 @@ jobs:
           path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}
 
   build-linux-arm64:
+    name: Build Linux arm64
     runs-on: ubuntu-latest
     env:
       TARGET: aarch64-unknown-linux-gnu
@@ -191,6 +195,7 @@ jobs:
           path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}
 
   build-linux-armv7:
+    name: Build Linux armv7
     if: ${{ inputs.armv7 }}
     runs-on: ubuntu-latest
     env:
@@ -233,6 +238,7 @@ jobs:
           path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}
 
   build-linux-amd64-musl:
+    name: Build Linux amd64 musl
     if: ${{ inputs.musl }}
     runs-on: ubuntu-latest
     env:
@@ -280,6 +286,7 @@ jobs:
           path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}
 
   build-linux-arm64-musl:
+    name: Build Linux arm64 musl
     if: ${{ inputs.musl }}
     runs-on: ubuntu-24.04-arm
     env:

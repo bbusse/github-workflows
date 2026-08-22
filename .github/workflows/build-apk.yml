@@ -129,6 +129,7 @@ env:
 
 jobs:
   build-apk-amd64:
+    name: Build APK amd64
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.apk_builder_image }}
@@ -283,6 +284,7 @@ jobs:
   # hardware instead - see build-apk-arm64-from-source below, which can't
   # use a job-level container for the same JS-actions-on-arm64 reason.
   build-apk-arm64:
+    name: Build APK arm64
     if: ${{ !inputs.build_from_source }}
     runs-on: ubuntu-latest
     container:
@@ -426,6 +428,7 @@ jobs:
   # image via a manual `podman run` for just the abuild step instead, with
   # checkout and artifact upload happening on the bare runner.
   build-apk-arm64-from-source:
+    name: Build APK arm64 from source
     if: ${{ inputs.build_from_source }}
     runs-on: ubuntu-24.04-arm
     env:

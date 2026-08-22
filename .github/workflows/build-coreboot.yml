@@ -14,7 +14,8 @@ permissions:
   packages: write
 
 jobs:
-  build-linux-kernel:
+  build-coreboot:
+    name: Build coreboot (${{ inputs.config }})
     runs-on: ubuntu-latest
     steps:
       - name: Aggressive cleanup

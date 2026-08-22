@@ -86,6 +86,7 @@ permissions:
 
 jobs:
   version:
+    name: Version
     uses: ./.github/workflows/compute-version.yml
     with:
       release_branch: ${{ inputs.release_branch }}
@@ -95,6 +96,7 @@ jobs:
       version_override: ${{ inputs.version_override }}
 
   release:
+    name: Release
     needs: version
     runs-on: ubuntu-latest
     outputs:

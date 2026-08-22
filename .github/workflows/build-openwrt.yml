@@ -19,6 +19,7 @@ permissions:
 
 jobs:
   build-openwrt:
+    name: Build OpenWrt
     runs-on: ubuntu-latest
     steps:
       - name: Aggressive cleanup

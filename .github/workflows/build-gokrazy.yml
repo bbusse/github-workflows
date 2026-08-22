@@ -9,8 +9,12 @@ on:
         default: "gokrazy-virtual.img"
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   build:
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout gokrazy repo

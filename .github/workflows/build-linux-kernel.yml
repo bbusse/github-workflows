@@ -8,8 +8,13 @@ on:
         description: Target kernel config (e.g., kernel-config-x230)
         required: true
         type: string
-      runs-on:
+      runs_on:
         description: Runner label to build on (e.g. ubuntu-latest, ubuntu-24.04-arm)
+        required: false
+        default: ''
+        type: string
+      runs-on:
+        description: Deprecated, use runs_on
         required: false
         default: ubuntu-latest
         type: string
@@ -29,7 +34,8 @@ permissions:
 
 jobs:
   build-linux-kernel:
-    runs-on: ${{ inputs.runs-on }}
+    name: Build Linux kernel
+    runs-on: ${{ inputs.runs_on != '' && inputs.runs_on || inputs['runs-on'] }}
     outputs:
       kernel_version: ${{ steps.kernel-version.outputs.version }}
     steps:
