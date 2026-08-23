@@ -1,8 +1,7 @@
 name: Configure abuild signing key
 description: >-
-  Install the PEM-encoded RSA signing key into /home/builder/.abuild, derive
-  its public half into /etc/apk/keys, and point abuild.conf at both. For jobs
-  running inside the apk-builder container.
+  Install the PEM-encoded RSA signing key, derive its public half, and point
+  abuild.conf at both.
 
 inputs:
   key_name:
@@ -15,6 +14,18 @@ inputs:
     description: Value written as PACKAGER in abuild.conf
     required: false
     default: ''
+  abuild_home:
+    description: Directory the .abuild config is written to
+    required: false
+    default: /home/builder/.abuild
+  in_container:
+    description: >-
+      Set when the job itself runs inside the apk-builder container, where the
+      public key belongs in /etc/apk/keys and the files must be owned by
+      builder:abuild. Clear when staging the key on a bare runner for a later
+      podman mount, where the container does both itself.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -25,12 +36,19 @@ runs:
         KEY_NAME: ${{ inputs.key_name }}
         ABUILD_PRIVATE_KEY: ${{ inputs.abuild_private_key }}
         PACKAGER: ${{ inputs.packager }}
+        ABUILD_HOME: ${{ inputs.abuild_home }}
+        IN_CONTAINER: ${{ inputs.in_container }}
       run: |
-        mkdir -p /home/builder/.abuild
-        printf '%s\n' "$ABUILD_PRIVATE_KEY" > "/home/builder/.abuild/$KEY_NAME.rsa"
-        chmod 600 "/home/builder/.abuild/$KEY_NAME.rsa"
-        openssl rsa -in "/home/builder/.abuild/$KEY_NAME.rsa" -pubout -out "/home/builder/.abuild/$KEY_NAME.rsa.pub"
-        cp "/home/builder/.abuild/$KEY_NAME.rsa.pub" /etc/apk/keys/
-        echo "PACKAGER_PRIVKEY=\"/home/builder/.abuild/$KEY_NAME.rsa\"" >> /home/builder/.abuild/abuild.conf
-        echo "PACKAGER=\"$PACKAGER\"" >> /home/builder/.abuild/abuild.conf
-        chown -R builder:abuild /home/builder/.abuild
+        set -eu
+        mkdir -p "$ABUILD_HOME"
+        printf '%s\n' "$ABUILD_PRIVATE_KEY" > "$ABUILD_HOME/$KEY_NAME.rsa"
+        chmod 600 "$ABUILD_HOME/$KEY_NAME.rsa"
+        openssl rsa -in "$ABUILD_HOME/$KEY_NAME.rsa" -pubout -out "$ABUILD_HOME/$KEY_NAME.rsa.pub"
+        {
+          echo "PACKAGER_PRIVKEY=\"/home/builder/.abuild/$KEY_NAME.rsa\""
+          echo "PACKAGER=\"$PACKAGER\""
+        } >> "$ABUILD_HOME/abuild.conf"
+        if [ "$IN_CONTAINER" = "true" ]; then
+          cp "$ABUILD_HOME/$KEY_NAME.rsa.pub" /etc/apk/keys/
+          chown -R builder:abuild "$ABUILD_HOME"
+        fi

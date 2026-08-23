@@ -1,0 +1,75 @@
+name: Create or update a GitHub Release
+description: >-
+  Attach files to a release, creating it if the tag has none yet and updating
+  its metadata if it does. Uses the preinstalled gh CLI.
+
+inputs:
+  tag:
+    description: Tag name for the release
+    required: true
+  files:
+    description: Files to attach; may be a glob
+    required: true
+  title:
+    description: Release title; defaults to the tag
+    required: false
+    default: ''
+  prerelease:
+    description: Mark the release as a prerelease
+    required: false
+    default: 'false'
+  target_commitish:
+    description: >-
+      Commit the tag should point at when it does not exist yet. Ignored when
+      the tag already exists.
+    required: false
+    default: ''
+  github_token:
+    description: Token used to create the release
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Create or update release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag }}
+        FILES: ${{ inputs.files }}
+        TITLE: ${{ inputs.title }}
+        PRERELEASE: ${{ inputs.prerelease }}
+        TARGET: ${{ inputs.target_commitish }}
+      run: |
+        set -eu
+
+        # Unquoted on purpose: FILES may be a glob such as ./dist/*
+        # shellcheck disable=SC2206
+        candidates=($FILES)
+        files=()
+        for f in "${candidates[@]}"; do
+          [ -e "$f" ] && files+=("$f")
+        done
+        if [ "${#files[@]}" -eq 0 ]; then
+          echo "no files matched: $FILES" >&2
+          exit 1
+        fi
+
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          edit=()
+          [ -n "$TITLE" ] && edit+=(--title "$TITLE")
+          if [ "$PRERELEASE" = "true" ]; then
+            edit+=(--prerelease)
+          else
+            edit+=(--prerelease=false)
+          fi
+          gh release edit "$TAG" "${edit[@]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
+        else
+          create=(--notes "")
+          [ -n "$TITLE" ] && create+=(--title "$TITLE")
+          [ "$PRERELEASE" = "true" ] && create+=(--prerelease)
+          [ -n "$TARGET" ] && create+=(--target "$TARGET")
+          gh release create "$TAG" "${files[@]}" "${create[@]}"
+        fi

@@ -215,20 +215,19 @@ jobs:
           git push origin "${{ needs.version.outputs.version }}"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: bbusse/github-workflows/.github/actions/gh-release@dev
         with:
-          tag_name: ${{ needs.version.outputs.version }}
+          tag: ${{ needs.version.outputs.version }}
           # In plain mode the version tag already exists (just created above,
           # pointing at the VERSION-bump commit) so this is ignored. In
           # always_release/version_branch mode there is no bump commit - the
           # tag doesn't exist yet, so this tells the release action to create
           # it pointing at the commit that was actually built.
           target_commitish: ${{ (inputs.always_release || inputs.version_branch != '') && github.sha || '' }}
-          name: ${{ inputs.binary_name }} ${{ needs.version.outputs.version }}
+          title: ${{ inputs.binary_name }} ${{ needs.version.outputs.version }}
           prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
           files: ./release-version/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Move latest tag
         run: |
@@ -285,11 +284,10 @@ jobs:
           git push origin "HEAD:${{ inputs.version_branch }}"
 
       - name: Create/update latest Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: bbusse/github-workflows/.github/actions/gh-release@dev
         with:
-          tag_name: latest
-          name: ${{ inputs.binary_name }} (latest)
+          tag: latest
+          title: ${{ inputs.binary_name }} (latest)
           prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
           files: ./release-latest/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}

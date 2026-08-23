@@ -281,18 +281,13 @@ jobs:
           path: ./work
 
       - name: Configure signing key
-        env:
-          KEY_NAME: ${{ inputs.key_name }}
-          ABUILD_PRIVATE_KEY: ${{ secrets.ABUILD_PRIVATE_KEY }}
-        run: |
-          mkdir -p ./abuild-home/.abuild
-          printf '%s\n' "$ABUILD_PRIVATE_KEY" > "./abuild-home/.abuild/$KEY_NAME.rsa"
-          chmod 600 "./abuild-home/.abuild/$KEY_NAME.rsa"
-          openssl rsa -in "./abuild-home/.abuild/$KEY_NAME.rsa" -pubout -out "./abuild-home/.abuild/$KEY_NAME.rsa.pub"
-          {
-            echo "PACKAGER_PRIVKEY=\"/home/builder/.abuild/$KEY_NAME.rsa\""
-            echo "PACKAGER=\"$PACKAGER\""
-          } > ./abuild-home/.abuild/abuild.conf
+        uses: bbusse/github-workflows/.github/actions/abuild-sign@dev
+        with:
+          key_name: ${{ inputs.key_name }}
+          abuild_private_key: ${{ secrets.ABUILD_PRIVATE_KEY }}
+          packager: ${{ env.PACKAGER }}
+          abuild_home: ./abuild-home/.abuild
+          in_container: 'false'
 
       - name: Build package
         run: |

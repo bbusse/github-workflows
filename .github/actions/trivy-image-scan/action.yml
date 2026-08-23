@@ -1,0 +1,27 @@
+name: Trivy image vulnerability scan
+description: >-
+  Scan a pushed image for OS and library vulnerabilities. Reports only; the
+  scan never fails the build.
+
+inputs:
+  image_ref:
+    description: Image reference to scan
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Run trivy image vulnerability scan
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      env:
+        # Use AWS ECR repo for the trivy-db image, as GitHub's Container
+        # Registry (ghcr.io) is returning a TOOMANYREQUESTS error.
+        # Ref: https://github.com/aquasecurity/trivy-action/issues/389
+        TRIVY_DB_REPOSITORY: 'public.ecr.aws/aquasecurity/trivy-db:2'
+        TRIVY_JAVA_DB_REPOSITORY: 'public.ecr.aws/aquasecurity/trivy-java-db:1'
+      with:
+        image-ref: ${{ inputs.image_ref }}
+        exit-code: '0'
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL,HIGH'
