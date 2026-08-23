@@ -110,9 +110,17 @@ runs:
       env:
         ADDITIONAL_TAGS: ${{ inputs.image_additional_tags }}
       run: |
+        # Composite steps run with -o pipefail, so grep matching nothing
+        # would abort this block before the closing delimiter is written.
         {
           echo "tags<<EOF"
-          printf '%s' "$ADDITIONAL_TAGS" | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' | sed 's/^/type=raw,value=/'
+          if [ -n "$ADDITIONAL_TAGS" ]; then
+            printf '%s' "$ADDITIONAL_TAGS" \
+              | tr ',' '\n' \
+              | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+              | { grep -v '^$' || true; } \
+              | sed 's/^/type=raw,value=/'
+          fi
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
 

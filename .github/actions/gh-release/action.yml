@@ -49,7 +49,7 @@ runs:
         candidates=($FILES)
         files=()
         for f in "${candidates[@]}"; do
-          [ -e "$f" ] && files+=("$f")
+          if [ -e "$f" ]; then files+=("$f"); fi
         done
         if [ "${#files[@]}" -eq 0 ]; then
           echo "no files matched: $FILES" >&2
@@ -58,7 +58,7 @@ runs:
 
         if gh release view "$TAG" >/dev/null 2>&1; then
           edit=()
-          [ -n "$TITLE" ] && edit+=(--title "$TITLE")
+          if [ -n "$TITLE" ]; then edit+=(--title "$TITLE"); fi
           if [ "$PRERELEASE" = "true" ]; then
             edit+=(--prerelease)
           else
@@ -68,8 +68,8 @@ runs:
           gh release upload "$TAG" "${files[@]}" --clobber
         else
           create=(--notes "")
-          [ -n "$TITLE" ] && create+=(--title "$TITLE")
-          [ "$PRERELEASE" = "true" ] && create+=(--prerelease)
-          [ -n "$TARGET" ] && create+=(--target "$TARGET")
+          if [ -n "$TITLE" ]; then create+=(--title "$TITLE"); fi
+          if [ "$PRERELEASE" = "true" ]; then create+=(--prerelease); fi
+          if [ -n "$TARGET" ]; then create+=(--target "$TARGET"); fi
           gh release create "$TAG" "${files[@]}" "${create[@]}"
         fi
