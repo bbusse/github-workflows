@@ -1,3 +1,4 @@
+---
 name: Extract and release build artifacts
 
 on:

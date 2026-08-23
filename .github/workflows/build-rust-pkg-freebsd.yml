@@ -1,3 +1,4 @@
+---
 name: FreeBSD Rust Package Build
 
 on:

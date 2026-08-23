@@ -1,3 +1,4 @@
+---
 name: Build Alpine Package
 
 # Packages an already-built linux-*-musl binary (produced by build-rust.yml

@@ -1,3 +1,4 @@
+---
 name: Build Gentoo Package
 
 # Checks out a real Portage overlay repo (e.g. bbusse/bbusse-overlay) inside an official

@@ -1,3 +1,4 @@
+---
 name: Build and Push APK Builder Image
 
 on:
@@ -15,7 +16,7 @@ permissions:
 jobs:
   build-and-push:
     name: Build and push
-    uses: ./.github/workflows/container-build-push.yaml
+    uses: ./.github/workflows/container-build-push.yml
     with:
       image_name: apk-builder
       image_repository: ghcr.io/bbusse

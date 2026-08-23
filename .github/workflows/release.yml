@@ -1,3 +1,4 @@
+---
 name: Binary Release
 
 # VERSION file tracks the current release state:
@@ -89,7 +90,6 @@ jobs:
     name: Version
     uses: ./.github/workflows/compute-version.yml
     with:
-      release_branch: ${{ inputs.release_branch }}
       version_branch: ${{ inputs.version_branch }}
       cargo_toml_path: ${{ inputs.cargo_toml_path }}
       always_release: ${{ inputs.always_release }}
