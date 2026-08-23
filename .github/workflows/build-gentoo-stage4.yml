@@ -59,9 +59,6 @@ jobs:
           ref: dev
           path: image-builder
 
-      - name: Expose GitHub Actions cache variables for buildx
-        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
-
       - name: Build
         env:
           IMAGE_LOCAL: ${{ inputs.image_name }}-${{ inputs.flavour }}-${{ inputs.arch }}

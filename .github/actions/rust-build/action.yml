@@ -1,0 +1,44 @@
+name: Build a Rust binary for a target
+description: >-
+  Install the requested Rust toolchain for a target triple, build the binary
+  in release mode, and stage it under dist/ with an arch suffix.
+
+inputs:
+  toolchain:
+    description: Rust toolchain to install (e.g. stable)
+    required: true
+  target:
+    description: Target triple to build for (e.g. aarch64-unknown-linux-gnu)
+    required: true
+  binary_name:
+    description: Cargo bin target to build
+    required: true
+  artifact_suffix:
+    description: Suffix appended to the staged filename (e.g. linux-arm64)
+    required: true
+  working_directory:
+    description: Directory holding the crate
+    required: false
+    default: '.'
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable as of pin date; bump periodically for new Rust releases
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        targets: ${{ inputs.target }}
+
+    - name: Build release binary
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: cargo build --release --locked --target "${{ inputs.target }}" --bin "${{ inputs.binary_name }}"
+
+    - name: Stage artifact
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        mkdir -p dist
+        cp "target/${{ inputs.target }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ inputs.artifact_suffix }}"
+        chmod +x "dist/${{ inputs.binary_name }}-${{ inputs.artifact_suffix }}"

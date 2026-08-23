@@ -61,22 +61,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable as of pin date; bump periodically for new Rust releases
+      - name: Build release binary
+        uses: bbusse/github-workflows/.github/actions/rust-build@dev
         with:
           toolchain: ${{ inputs.rust_toolchain }}
-          targets: ${{ env.TARGET }}
-
-      - name: Build release binary
-        working-directory: ${{ inputs.working_directory }}
-        run: cargo build --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
-
-      - name: Stage artifact
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          mkdir -p dist
-          cp "target/${{ env.TARGET }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
-          chmod +x "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+          target: ${{ env.TARGET }}
+          binary_name: ${{ inputs.binary_name }}
+          artifact_suffix: ${{ env.ARTIFACT_SUFFIX }}
+          working_directory: ${{ inputs.working_directory }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -129,22 +121,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable as of pin date; bump periodically for new Rust releases
+      - name: Build release binary
+        uses: bbusse/github-workflows/.github/actions/rust-build@dev
         with:
           toolchain: ${{ inputs.rust_toolchain }}
-          targets: ${{ env.TARGET }}
-
-      - name: Build release binary
-        working-directory: ${{ inputs.working_directory }}
-        run: cargo build --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
-
-      - name: Stage artifact
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          mkdir -p dist
-          cp "target/${{ env.TARGET }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
-          chmod +x "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+          target: ${{ env.TARGET }}
+          binary_name: ${{ inputs.binary_name }}
+          artifact_suffix: ${{ env.ARTIFACT_SUFFIX }}
+          working_directory: ${{ inputs.working_directory }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -171,22 +155,14 @@ jobs:
             gcc-aarch64-linux-gnu \
             libc6-dev-arm64-cross
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable as of pin date; bump periodically for new Rust releases
+      - name: Build release binary
+        uses: bbusse/github-workflows/.github/actions/rust-build@dev
         with:
           toolchain: ${{ inputs.rust_toolchain }}
-          targets: ${{ env.TARGET }}
-
-      - name: Build release binary
-        working-directory: ${{ inputs.working_directory }}
-        run: cargo build --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
-
-      - name: Stage artifact
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          mkdir -p dist
-          cp "target/${{ env.TARGET }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
-          chmod +x "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+          target: ${{ env.TARGET }}
+          binary_name: ${{ inputs.binary_name }}
+          artifact_suffix: ${{ env.ARTIFACT_SUFFIX }}
+          working_directory: ${{ inputs.working_directory }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -214,22 +190,14 @@ jobs:
             gcc-arm-linux-gnueabihf \
             libc6-dev-armhf-cross
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable as of pin date; bump periodically for new Rust releases
+      - name: Build release binary
+        uses: bbusse/github-workflows/.github/actions/rust-build@dev
         with:
           toolchain: ${{ inputs.rust_toolchain }}
-          targets: ${{ env.TARGET }}
-
-      - name: Build release binary
-        working-directory: ${{ inputs.working_directory }}
-        run: cargo build --release --locked --target "${{ env.TARGET }}" --bin "${{ inputs.binary_name }}"
-
-      - name: Stage artifact
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          mkdir -p dist
-          cp "target/${{ env.TARGET }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
-          chmod +x "dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}"
+          target: ${{ env.TARGET }}
+          binary_name: ${{ inputs.binary_name }}
+          artifact_suffix: ${{ env.ARTIFACT_SUFFIX }}
+          working_directory: ${{ inputs.working_directory }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
