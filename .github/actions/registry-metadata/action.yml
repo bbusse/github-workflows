@@ -1,0 +1,129 @@
+name: Log in to the registry and resolve image metadata
+description: >-
+  Authenticate against ECR or GHCR, resolve the full repository path, and
+  compute the tag set and labels. Exports repository and DEFAULT_TAG into the
+  job environment so later steps can use them.
+
+inputs:
+  container_registry:
+    description: One of ghcr / ecr
+    required: true
+  image_name:
+    description: Name of the resulting image
+    required: true
+  image_repository:
+    description: Image repository, for ghcr
+    required: false
+    default: ''
+  image_tag:
+    description: An optional explicit image tag
+    required: false
+    default: ''
+  image_additional_tags:
+    description: Comma and/or newline separated list of additional tags
+    required: false
+    default: ''
+  aws_region:
+    description: AWS region, for ecr
+    required: false
+    default: eu-central-1
+  aws_arn_role_to_assume:
+    description: Role to assume, for ecr
+    required: false
+    default: ''
+  github_token:
+    description: Token used to log in to ghcr
+    required: false
+    default: ''
+
+outputs:
+  repository:
+    description: Full registry/repository path for the image
+    value: ${{ steps.repo.outputs.repository }}
+  default_tag:
+    description: Ref-derived tag applied to every build
+    value: ${{ steps.tag.outputs.default_tag }}
+  tags:
+    description: Newline-separated tag list from docker/metadata-action
+    value: ${{ steps.meta.outputs.tags }}
+  labels:
+    description: OCI labels from docker/metadata-action
+    value: ${{ steps.meta.outputs.labels }}
+
+runs:
+  using: composite
+  steps:
+    - name: Configure AWS credentials
+      if: inputs.container_registry == 'ecr'
+      uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+      with:
+        aws-region: ${{ inputs.aws_region }}
+        role-to-assume: ${{ inputs.aws_arn_role_to_assume }}
+
+    - name: Login to Amazon ECR
+      id: ecr-login
+      if: inputs.container_registry == 'ecr'
+      uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
+
+    - name: Login to GitHub Container Registry
+      if: inputs.container_registry == 'ghcr'
+      uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.github_token }}
+
+    - name: Resolve registry/repo path
+      id: repo
+      shell: bash
+      env:
+        REGISTRY_KIND: ${{ inputs.container_registry }}
+        ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        IMAGE_NAME: ${{ inputs.image_name }}
+        IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+      run: |
+        set -eu
+        if [ "$REGISTRY_KIND" = "ecr" ]; then
+          repository="${ECR_REGISTRY}/${IMAGE_NAME}"
+        else
+          repository="${IMAGE_REPOSITORY}/${IMAGE_NAME}"
+        fi
+        echo "repository=${repository}" >> "$GITHUB_ENV"
+        echo "repository=${repository}" >> "$GITHUB_OUTPUT"
+
+    - name: Resolve default tag
+      id: tag
+      shell: bash
+      env:
+        REF_NAME: ${{ github.ref_name }}
+        RUN_NUMBER: ${{ github.run_number }}
+      run: |
+        set -eu
+        short_sha="$(git rev-parse --short HEAD)"
+        default_tag="${REF_NAME////-}_${short_sha}_${RUN_NUMBER}"
+        echo "DEFAULT_TAG=${default_tag}" >> "$GITHUB_ENV"
+        echo "default_tag=${default_tag}" >> "$GITHUB_OUTPUT"
+
+    - name: Build additional tag rules
+      id: additional-tags
+      shell: bash
+      env:
+        ADDITIONAL_TAGS: ${{ inputs.image_additional_tags }}
+      run: |
+        {
+          echo "tags<<EOF"
+          printf '%s' "$ADDITIONAL_TAGS" | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' | sed 's/^/type=raw,value=/'
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Extract metadata (tags, labels)
+      id: meta
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      with:
+        images: ${{ steps.repo.outputs.repository }}
+        tags: |
+          type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
+          type=raw,enable=true,priority=200,prefix=,suffix=,value=${{ steps.tag.outputs.default_tag }}
+          type=raw,value=latest,enable=true
+          type=sha,enable=true,priority=100,prefix=sha-,suffix=,format=long
+          ${{ steps.additional-tags.outputs.tags }}

@@ -77,6 +77,10 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   prepare:
     name: Prepare platforms
@@ -124,8 +128,6 @@ jobs:
   scan-repo:
     name: Scan repository
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -148,172 +150,116 @@ jobs:
     name: Build and push container (${{ matrix.platform }})
     needs: prepare
     runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-      packages: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    # Only needed when this runner is not native to the platform it builds.
-    - name: Set up QEMU
-      if: ${{ !((endsWith(matrix.platform, '/arm64') && matrix.runner == 'ubuntu-24.04-arm') || (endsWith(matrix.platform, '/amd64') && matrix.runner == 'ubuntu-latest')) }}
-      uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      # Only needed when this runner is not native to the platform it builds.
+      - name: Set up QEMU
+        if: ${{ !((endsWith(matrix.platform, '/arm64') && matrix.runner == 'ubuntu-24.04-arm') || (endsWith(matrix.platform, '/amd64') && matrix.runner == 'ubuntu-latest')) }}
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
-    - name: Set up Docker buildx
-      uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-    - name: Get short SHA
-      id: short-sha
-      run: echo "short_sha=`git rev-parse --short HEAD`" >> $GITHUB_OUTPUT
+      - name: Log in and resolve image metadata
+        id: meta
+        uses: bbusse/github-workflows/.github/actions/registry-metadata@dev
+        with:
+          container_registry: ${{ inputs.container_registry }}
+          image_name: ${{ inputs.image_name }}
+          image_repository: ${{ inputs.image_repository }}
+          image_tag: ${{ inputs.image_tag }}
+          image_additional_tags: ${{ inputs.image_additional_tags }}
+          aws_region: ${{ inputs.aws_region }}
+          aws_arn_role_to_assume: ${{ inputs.aws_arn_role_to_assume }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
-      with:
-        aws-region: ${{ inputs.aws_region }}
-        role-to-assume: ${{ inputs.aws_arn_role_to_assume }}
-      if: inputs.container_registry == 'ecr'
+      - name: Determine container file
+        id: container_file
+        env:
+          CONTAINER_FILE_INPUT: ${{ inputs.container_file }}
+        run: |
+          set -eu
+          if [ -n "$CONTAINER_FILE_INPUT" ]; then
+            container_file="$CONTAINER_FILE_INPUT"
+          elif [ -f "Containerfile" ]; then
+            container_file="Containerfile"
+          else
+            container_file="Dockerfile"
+          fi
+          echo "container_file=${container_file}" >> "$GITHUB_OUTPUT"
 
-    - name: Login to Amazon ECR
-      id: ecr-login
-      uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
-      if: inputs.container_registry == 'ecr'
+      # Single platform, or not pushing at all: tag directly, exactly as
+      # before. There is no manifest list to assemble.
+      - name: Build container and optionally push to registry
+        id: container-build-push
+        if: ${{ needs.prepare.outputs.multi != 'true' || !inputs.container_push_to_registry }}
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          platforms: ${{ matrix.platform }}
+          file: ${{ steps.container_file.outputs.container_file }}
+          context: ${{ inputs.container_build_context }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ inputs.build_args }}
+          cache-from: type=gha,scope=${{ inputs.image_name }}-${{ matrix.slug }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.image_name }}-${{ matrix.slug }}
+          provenance: false
+          push: ${{ inputs.container_push_to_registry }}
 
-    - name: Login to GitHub Container Registry
-      id: login-ghcr
-      uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-      if: inputs.container_registry == 'ghcr'
+      # Several platforms: push an untagged, digest-addressed image per
+      # platform. The merge job below ties them together under the real tags.
+      - name: Build container and push by digest
+        id: container-build-digest
+        if: ${{ needs.prepare.outputs.multi == 'true' && inputs.container_push_to_registry }}
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          platforms: ${{ matrix.platform }}
+          file: ${{ steps.container_file.outputs.container_file }}
+          context: ${{ inputs.container_build_context }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ inputs.build_args }}
+          cache-from: type=gha,scope=${{ inputs.image_name }}-${{ matrix.slug }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.image_name }}-${{ matrix.slug }}
+          provenance: false
+          outputs: type=image,name=${{ steps.meta.outputs.repository }},push-by-digest=true,name-canonical=true,push=true
 
-    - name: Get registry/repo path
-      id: get-registry-ecr
-      run: echo "repository=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image_name }}" >> $GITHUB_ENV
-      if: inputs.container_registry == 'ecr'
+      - name: Export digest
+        if: ${{ needs.prepare.outputs.multi == 'true' && inputs.container_push_to_registry }}
+        env:
+          DIGEST: ${{ steps.container-build-digest.outputs.digest }}
+        run: |
+          set -eu
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
 
-    - name: Get registry/repo path
-      id: get-registry-ghcr
-      run: echo "repository=${{ inputs.image_repository }}/${{ inputs.image_name }}" >> $GITHUB_ENV
-      if: inputs.container_registry == 'ghcr'
+      - name: Upload digest
+        if: ${{ needs.prepare.outputs.multi == 'true' && inputs.container_push_to_registry }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ inputs.image_name }}-${{ matrix.slug }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
 
-    - name: Create tag from tag from github.ref_name
-      id: ref-name
-      env:
-        REF_NAME: ${{ github.ref_name }}
-        SHORT_SHA: ${{ steps.short-sha.outputs.short_sha }}
-        RUN_NUMBER: ${{ github.run_number }}
-      run: |
-        echo "DEFAULT_TAG=${REF_NAME////-}_${SHORT_SHA}_${RUN_NUMBER}" >> "$GITHUB_ENV"
+      - name: Run trivy image vulnerability scan
+        if: ${{ needs.prepare.outputs.multi != 'true' && inputs.container_push_to_registry }}
+        uses: bbusse/github-workflows/.github/actions/trivy-image-scan@dev
+        with:
+          image_ref: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.default_tag }}
 
-    - name: Build additional tag rules
-      id: additional-tags
-      run: |
-        {
-          echo "tags<<EOF"
-          echo "${{ inputs.image_additional_tags }}" | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' | sed 's/^/type=raw,value=/'
-          echo "EOF"
-        } >> "$GITHUB_OUTPUT"
-
-    - name: Extract metadata (tags, labels)
-      id: extract-metadata
-      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-      with:
-        images: ${{ env.repository }}
-        tags: |
-          type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
-          type=raw,enable=true,priority=200,prefix=,suffix=,value=${{ env.DEFAULT_TAG }}
-          type=raw,value=latest,enable=true
-          type=sha,enable=true,priority=100,prefix=sha-,suffix=,format=long
-          ${{ steps.additional-tags.outputs.tags }}
-
-    - run: ls -l
-
-    - name: Determine container file
-      id: container_file
-      run: |
-        if [ -n "${{ inputs.container_file }}" ]; then
-          CONTAINER_FILE="${{ inputs.container_file }}"
-        elif [ -f "Containerfile" ]; then
-          CONTAINER_FILE="Containerfile"
-        else
-          CONTAINER_FILE="Dockerfile"
-        fi
-        echo "container_file=$CONTAINER_FILE" >> $GITHUB_OUTPUT
-
-    # Single platform, or not pushing at all: tag directly, exactly as
-    # before. There is no manifest list to assemble.
-    - name: Build container and optionally push to registry
-      id: container-build-push
-      if: ${{ needs.prepare.outputs.multi != 'true' || !inputs.container_push_to_registry }}
-      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-      with:
-        platforms: ${{ matrix.platform }}
-        file: ${{ steps.container_file.outputs.container_file }}
-        context: ${{ inputs.container_build_context }}
-        tags: ${{ steps.extract-metadata.outputs.tags }}
-        labels: ${{ steps.extract-metadata.outputs.labels }}
-        build-args: ${{ inputs.build_args }}
-        cache-from: type=gha,scope=${{ inputs.image_name }}-${{ matrix.slug }}
-        cache-to: type=gha,mode=max,scope=${{ inputs.image_name }}-${{ matrix.slug }}
-        provenance: false
-        push: ${{ inputs.container_push_to_registry }}
-
-    # Several platforms: push an untagged, digest-addressed image per
-    # platform. The merge job below ties them together under the real tags.
-    - name: Build container and push by digest
-      id: container-build-digest
-      if: ${{ needs.prepare.outputs.multi == 'true' && inputs.container_push_to_registry }}
-      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-      with:
-        platforms: ${{ matrix.platform }}
-        file: ${{ steps.container_file.outputs.container_file }}
-        context: ${{ inputs.container_build_context }}
-        labels: ${{ steps.extract-metadata.outputs.labels }}
-        build-args: ${{ inputs.build_args }}
-        cache-from: type=gha,scope=${{ inputs.image_name }}-${{ matrix.slug }}
-        cache-to: type=gha,mode=max,scope=${{ inputs.image_name }}-${{ matrix.slug }}
-        provenance: false
-        outputs: type=image,name=${{ env.repository }},push-by-digest=true,name-canonical=true,push=true
-
-    - name: Export digest
-      if: ${{ needs.prepare.outputs.multi == 'true' && inputs.container_push_to_registry }}
-      env:
-        DIGEST: ${{ steps.container-build-digest.outputs.digest }}
-      run: |
-        mkdir -p /tmp/digests
-        touch "/tmp/digests/${DIGEST#sha256:}"
-
-    - name: Upload digest
-      if: ${{ needs.prepare.outputs.multi == 'true' && inputs.container_push_to_registry }}
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-      with:
-        name: digests-${{ inputs.image_name }}-${{ matrix.slug }}
-        path: /tmp/digests/*
-        if-no-files-found: error
-        retention-days: 1
-
-    - name: Run trivy image vulnerability scan
-      if: ${{ needs.prepare.outputs.multi != 'true' && inputs.container_push_to_registry }}
-      uses: bbusse/github-workflows/.github/actions/trivy-image-scan@dev
-      with:
-        image_ref: ${{ env.repository }}:${{ env.DEFAULT_TAG }}
-
-    - name: Image digest
-      run: echo "${{ steps.container-build-push.outputs.digest || steps.container-build-digest.outputs.digest }}"
+      - name: Image digest
+        run: echo "${{ steps.container-build-push.outputs.digest || steps.container-build-digest.outputs.digest }}"
 
   merge:
     name: Assemble manifest list
     needs: [prepare, build-and-push-container]
     if: ${{ needs.prepare.outputs.multi == 'true' && inputs.container_push_to_registry }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -327,78 +273,35 @@ jobs:
           pattern: digests-${{ inputs.image_name }}-*
           merge-multiple: true
 
-      - name: Get short SHA
-        id: short-sha
-        run: echo "short_sha=`git rev-parse --short HEAD`" >> $GITHUB_OUTPUT
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+      - name: Log in and resolve image metadata
+        id: meta
+        uses: bbusse/github-workflows/.github/actions/registry-metadata@dev
         with:
-          aws-region: ${{ inputs.aws_region }}
-          role-to-assume: ${{ inputs.aws_arn_role_to_assume }}
-        if: inputs.container_registry == 'ecr'
-
-      - name: Login to Amazon ECR
-        id: ecr-login
-        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
-        if: inputs.container_registry == 'ecr'
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-        if: inputs.container_registry == 'ghcr'
-
-      - name: Get registry/repo path
-        run: echo "repository=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image_name }}" >> $GITHUB_ENV
-        if: inputs.container_registry == 'ecr'
-
-      - name: Get registry/repo path
-        run: echo "repository=${{ inputs.image_repository }}/${{ inputs.image_name }}" >> $GITHUB_ENV
-        if: inputs.container_registry == 'ghcr'
-
-      - name: Create tag from tag from github.ref_name
-        env:
-          REF_NAME: ${{ github.ref_name }}
-          SHORT_SHA: ${{ steps.short-sha.outputs.short_sha }}
-          RUN_NUMBER: ${{ github.run_number }}
-        run: |
-          echo "DEFAULT_TAG=${REF_NAME////-}_${SHORT_SHA}_${RUN_NUMBER}" >> "$GITHUB_ENV"
-
-      - name: Build additional tag rules
-        id: additional-tags
-        run: |
-          {
-            echo "tags<<EOF"
-            echo "${{ inputs.image_additional_tags }}" | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' | sed 's/^/type=raw,value=/'
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Extract metadata (tags, labels)
-        id: extract-metadata
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.repository }}
-          tags: |
-            type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
-            type=raw,enable=true,priority=200,prefix=,suffix=,value=${{ env.DEFAULT_TAG }}
-            type=raw,value=latest,enable=true
-            type=sha,enable=true,priority=100,prefix=sha-,suffix=,format=long
-            ${{ steps.additional-tags.outputs.tags }}
+          container_registry: ${{ inputs.container_registry }}
+          image_name: ${{ inputs.image_name }}
+          image_repository: ${{ inputs.image_repository }}
+          image_tag: ${{ inputs.image_tag }}
+          image_additional_tags: ${{ inputs.image_additional_tags }}
+          aws_region: ${{ inputs.aws_region }}
+          aws_arn_role_to_assume: ${{ inputs.aws_arn_role_to_assume }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
+        env:
+          REPOSITORY: ${{ steps.meta.outputs.repository }}
         run: |
+          set -eu
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf "${repository}@sha256:%s " *)
+            $(printf "${REPOSITORY}@sha256:%s " *)
 
       - name: Inspect image
-        run: docker buildx imagetools inspect "${repository}:${DEFAULT_TAG}"
+        env:
+          IMAGE_REF: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.default_tag }}
+        run: docker buildx imagetools inspect "$IMAGE_REF"
 
       - name: Run trivy image vulnerability scan
         uses: bbusse/github-workflows/.github/actions/trivy-image-scan@dev
         with:
-          image_ref: ${{ env.repository }}:${{ env.DEFAULT_TAG }}
+          image_ref: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.default_tag }}

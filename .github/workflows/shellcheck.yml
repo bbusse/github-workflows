@@ -32,7 +32,32 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
+      # shellcheck ships in the runner image. Discovery matches by extension
+      # and by shell shebang, so extensionless scripts are still covered.
       - name: Run ShellCheck
-        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
         env:
           SHELLCHECK_OPTS: ${{ inputs.shellcheck_opts }}
+        run: |
+          set -eu
+          shellcheck --version
+
+          mapfile -d '' -t files < <(
+            find . -path ./.git -prune -o -type f \
+              \( -name '*.sh' -o -name '*.bash' -o -name '*.ksh' -o -name '*.dash' \) \
+              -print0
+            find . -path ./.git -prune -o -type f ! -name '*.*' -print0 \
+              | while IFS= read -r -d '' f; do
+                  head -c 128 "$f" 2>/dev/null \
+                    | head -n 1 \
+                    | grep -qE '^#!.*\b(ba|da|k|a)?sh\b' && printf '%s\0' "$f"
+                done
+          )
+
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no shell scripts found"
+            exit 0
+          fi
+
+          printf 'checking %s file(s)\n' "${#files[@]}"
+          printf '  %s\n' "${files[@]}"
+          shellcheck "${files[@]}"
