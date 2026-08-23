@@ -84,10 +84,17 @@ runs:
       run: |
         set -eu
         if [ "$REGISTRY_KIND" = "ecr" ]; then
-          repository="${ECR_REGISTRY}/${IMAGE_NAME}"
+          prefix="$ECR_REGISTRY"
+          [ -n "$prefix" ] || { echo "ecr login produced no registry host" >&2; exit 1; }
         else
-          repository="${IMAGE_REPOSITORY}/${IMAGE_NAME}"
+          prefix="$IMAGE_REPOSITORY"
+          case "$prefix" in
+            ghcr.io/*) ;;
+            "") echo "image_repository is required for container_registry: ghcr" >&2; exit 1 ;;
+            *)  echo "image_repository must start with ghcr.io/ (got '$prefix'); without it the push goes to docker.io" >&2; exit 1 ;;
+          esac
         fi
+        repository="${prefix}/${IMAGE_NAME}"
         echo "repository=${repository}" >> "$GITHUB_ENV"
         echo "repository=${repository}" >> "$GITHUB_OUTPUT"
 
