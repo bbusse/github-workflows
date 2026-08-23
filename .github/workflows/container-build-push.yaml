@@ -4,10 +4,6 @@ name: Build Container And Push To Registry
 on:
   workflow_call:
     inputs:
-      prefix:
-        type: string
-        description: A custom prefix
-        required: false
       image_name:
         type: string
         description: A name for the resulting image

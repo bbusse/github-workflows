@@ -8,12 +8,13 @@ on:
       - '.github/workflows/build-apk-builder-image.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build-and-push:
     name: Build and push
-    permissions:
-      contents: read
-      packages: write
     uses: ./.github/workflows/container-build-push.yaml
     with:
       image_name: apk-builder
