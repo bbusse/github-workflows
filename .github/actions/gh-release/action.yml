@@ -57,7 +57,9 @@ runs:
         fi
 
         if gh release view "$TAG" >/dev/null 2>&1; then
-          edit=()
+          # Deleting a tag reverts its release to a draft, and draft releases
+          # are not served from releases/download, so publish explicitly.
+          edit=(--draft=false)
           if [ -n "$TITLE" ]; then edit+=(--title "$TITLE"); fi
           if [ "$PRERELEASE" = "true" ]; then
             edit+=(--prerelease)

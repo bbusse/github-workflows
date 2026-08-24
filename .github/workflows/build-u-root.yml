@@ -1,5 +1,5 @@
 ---
-name: Build u-root arm64
+name: Build u-root
 
 on:
   workflow_call:
