@@ -28,6 +28,14 @@ on:
         required: false
         default: false
         type: boolean
+      font_urls:
+        description: >-
+          Space separated URLs of fonts to install into the image. Empty
+          installs none; a font that cannot be fetched is skipped rather
+          than failing the build.
+        required: false
+        default: ''
+        type: string
       wait_for_job:
         description: Regexp for job to wait for
         required: false
@@ -86,6 +94,7 @@ jobs:
         env:
           VERIFY_FS: ${{ inputs.verify_fs && '1' || '0' }}
           VERIFY_FS_STAGES: ${{ inputs.verify_fs_stages && '1' || '0' }}
+          FONT_URLS: ${{ inputs.font_urls }}
         run: |
           ls -al
           sudo ./image-builder/image-builder install
