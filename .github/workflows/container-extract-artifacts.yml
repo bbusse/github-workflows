@@ -34,11 +34,6 @@ on:
         required: false
         default: ''
         type: string
-      wait-for-job:
-        description: Deprecated, use wait_for_job
-        required: false
-        default: ''
-        type: string
       use_arm_runner:
         description: Use ARM runner (ubuntu-24.04-arm) instead of ubuntu-latest
         required: false
@@ -55,16 +50,14 @@ permissions:
 jobs:
   wait-for-container:
     name: Wait for container
-    if: inputs.wait_for_job != '' || inputs['wait-for-job'] != ''
+    if: ${{ inputs.wait_for_job != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Wait for container release
-        uses: lewagon/wait-on-check-action@2271c86c146b96545b4e871b855e10ffa6f50773 # v1.9.0
+        uses: bbusse/github-workflows/.github/actions/wait-for-checks@dev
         with:
-          ref: ${{ github.ref }}
-          check-regexp: ${{ inputs.wait_for_job != '' && inputs.wait_for_job || inputs['wait-for-job'] }}
-          repo-token: ${{ secrets.GH_TOKEN }}
-          wait-interval: 10
+          check_regexp: ${{ inputs.wait_for_job }}
+          github_token: ${{ secrets.GH_TOKEN }}
 
   extract-artifacts:
     name: Extract ${{ matrix.artifact.name }}

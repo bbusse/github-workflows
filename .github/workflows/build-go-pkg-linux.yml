@@ -37,66 +37,44 @@ permissions:
   contents: read
 
 jobs:
-  build-linux-amd64:
-    name: Build Linux amd64
+  build-linux:
+    name: Build Linux ${{ matrix.arch }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     env:
       GOOS: linux
-      GOARCH: amd64
+      GOARCH: ${{ matrix.arch }}
       CGO_ENABLED: 0
-      ARTIFACT_SUFFIX: linux-amd64
+      ARTIFACT_SUFFIX: linux-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.repository != '' && inputs.repository || github.repository }}
           ref: ${{ inputs.ref }}
 
+      # go_version selects a specific toolchain, which the runner's
+      # preinstalled Go can't do - one of the few cases where an action earns
+      # its place over a plain run: step.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ inputs.go_version }}
 
       - name: Build
         working-directory: ${{ inputs.working_directory }}
+        env:
+          BINARY_NAME: ${{ inputs.binary_name }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
         run: |
-          BIN="${{ inputs.binary_name }}"
-          [ -n "$BIN" ] || BIN="${{ inputs.artifact_name }}"
-          go build -o "$BIN" .
-          tar -cJf "${{ inputs.artifact_name }}-${ARTIFACT_SUFFIX}.tar.xz" "$BIN"
+          set -eu
+          bin="${BINARY_NAME:-$ARTIFACT_NAME}"
+          go build -o "$bin" .
+          tar -cJf "${ARTIFACT_NAME}-${ARTIFACT_SUFFIX}.tar.xz" "$bin"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.artifact_name }}-linux-amd64.tar.xz
-          path: ${{ inputs.working_directory }}/${{ inputs.artifact_name }}-linux-amd64.tar.xz
-
-  build-linux-arm64:
-    name: Build Linux arm64
-    runs-on: ubuntu-latest
-    env:
-      GOOS: linux
-      GOARCH: arm64
-      CGO_ENABLED: 0
-      ARTIFACT_SUFFIX: linux-arm64
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ inputs.repository != '' && inputs.repository || github.repository }}
-          ref: ${{ inputs.ref }}
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: ${{ inputs.go_version }}
-
-      - name: Build
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          BIN="${{ inputs.binary_name }}"
-          [ -n "$BIN" ] || BIN="${{ inputs.artifact_name }}"
-          go build -o "$BIN" .
-          tar -cJf "${{ inputs.artifact_name }}-${ARTIFACT_SUFFIX}.tar.xz" "$BIN"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ inputs.artifact_name }}-linux-arm64.tar.xz
-          path: ${{ inputs.working_directory }}/${{ inputs.artifact_name }}-linux-arm64.tar.xz
+          name: ${{ inputs.artifact_name }}-linux-${{ matrix.arch }}.tar.xz
+          path: ${{ inputs.working_directory }}/${{ inputs.artifact_name }}-linux-${{ matrix.arch }}.tar.xz

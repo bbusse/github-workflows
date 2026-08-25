@@ -128,27 +128,31 @@ env:
   #   gh variable set PACKAGER --body "Name <email>" --repo <owner>/<repo>
   PACKAGER: ${{ vars.PACKAGER }}
 
+
 jobs:
-  build-apk-amd64:
-    name: Build APK amd64
+  # Packaging a prebuilt binary: abuild never compiles or executes it, it just
+  # copies it into a package, so arch is metadata only (CARCH) and both arches
+  # build on the same x64 runner. That also sidesteps GitHub's restriction
+  # that JS actions in Alpine containers only work on x64 Linux runners.
+  build-apk:
+    name: Build APK ${{ matrix.arch }}
+    if: ${{ !inputs.build_from_source }}
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.apk_builder_image }}
-    env:
-      ALPINE_ARCH: x86_64
-      ARTIFACT_SUFFIX: linux-amd64-musl
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            alpine_arch: x86_64
+          - arch: arm64
+            alpine_arch: aarch64
     steps:
-      - name: Checkout
-        if: ${{ inputs.build_from_source }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: ./work
-
       - name: Download build artifact
-        if: ${{ !inputs.build_from_source }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}
+          name: ${{ inputs.artifact_name }}-linux-${{ matrix.arch }}-musl
           path: ./work
 
       - name: Configure signing key
@@ -159,7 +163,6 @@ jobs:
           packager: ${{ env.PACKAGER }}
 
       - name: Write APKBUILD
-        if: ${{ !inputs.build_from_source }}
         uses: bbusse/github-workflows/.github/actions/write-apkbuild@dev
         with:
           binary_name: ${{ inputs.binary_name }}
@@ -168,8 +171,8 @@ jobs:
           pkgdesc: ${{ inputs.pkgdesc }}
           pkgurl: ${{ inputs.pkgurl }}
           license: ${{ inputs.license }}
-          alpine_arch: ${{ env.ALPINE_ARCH }}
-          artifact_suffix: ${{ env.ARTIFACT_SUFFIX }}
+          alpine_arch: ${{ matrix.alpine_arch }}
+          artifact_suffix: linux-${{ matrix.arch }}-musl
           packager: ${{ env.PACKAGER }}
           bundle_tarball: ${{ inputs.bundle_tarball }}
           provides: ${{ inputs.provides }}
@@ -177,9 +180,58 @@ jobs:
           symlinks: ${{ inputs.symlinks }}
           alt_subpackage: ${{ inputs.alt_subpackage }}
           working_directory: ./work
+
+      - name: Build package
+        working-directory: ./work
+        env:
+          CARCH: ${{ matrix.alpine_arch }}
+        run: |
+          set -eu
+          apk update
+          chown -R builder:abuild .
+          sudo -u builder -H sh -c "CARCH=$CARCH abuild checksum && CARCH=$CARCH abuild -r"
+
+      - name: Stage package
+        uses: bbusse/github-workflows/.github/actions/stage-apk@dev
+        with:
+          packages_dir: /home/builder/packages
+          alpine_arch: ${{ matrix.alpine_arch }}
+
+      - name: Upload apk artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-${{ matrix.arch }}
+          path: ./out/*.apk
+
+  # Building from source: abuild really compiles, so each arch needs its own
+  # hardware and its own mechanism. On x64 a job-level container works; on an
+  # arm64 runner it can't, because GitHub doesn't support JS actions
+  # (checkout, up/download-artifact) inside a container there - so that leg
+  # runs the Alpine image via a manual `podman run` for the abuild step only,
+  # with checkout and upload happening on the bare runner.
+  build-apk-amd64-from-source:
+    name: Build APK amd64 from source
+    if: ${{ inputs.build_from_source }}
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.apk_builder_image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ./work
+
+      - name: Configure signing key
+        uses: bbusse/github-workflows/.github/actions/abuild-sign@dev
+        with:
+          key_name: ${{ inputs.key_name }}
+          abuild_private_key: ${{ secrets.ABUILD_PRIVATE_KEY }}
+          packager: ${{ env.PACKAGER }}
+
       - name: Build package
         working-directory: ./work/${{ inputs.working_directory }}
         run: |
+          set -eu
           apk update
           chown -R builder:abuild "$GITHUB_WORKSPACE/work"
           sudo -u builder -H sh -c 'abuild checksum && abuild -r'
@@ -188,93 +240,18 @@ jobs:
         uses: bbusse/github-workflows/.github/actions/stage-apk@dev
         with:
           packages_dir: /home/builder/packages
-          alpine_arch: ${{ env.ALPINE_ARCH }}
+          alpine_arch: x86_64
+
       - name: Upload apk artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-amd64
           path: ./out/*.apk
 
-  # Only for bundle/plain packaging (!build_from_source): abuild never
-  # compiles or executes the target binary in that case, it just copies it
-  # into a package (arch=aarch64 is metadata only), so it's safe - and
-  # necessary - to run this on the same x64 runner as build-apk-amd64,
-  # sidestepping GitHub's restriction that JS actions in Alpine containers
-  # only work on x64 Linux runners. build_from_source needs real arm64
-  # hardware instead - see build-apk-arm64-from-source below, which can't
-  # use a job-level container for the same JS-actions-on-arm64 reason.
-  build-apk-arm64:
-    name: Build APK arm64
-    if: ${{ !inputs.build_from_source }}
-    runs-on: ubuntu-latest
-    container:
-      image: ${{ inputs.apk_builder_image }}
-    env:
-      ALPINE_ARCH: aarch64
-      ARTIFACT_SUFFIX: linux-arm64-musl
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}
-          path: ./work
-
-      - name: Configure signing key
-        uses: bbusse/github-workflows/.github/actions/abuild-sign@dev
-        with:
-          key_name: ${{ inputs.key_name }}
-          abuild_private_key: ${{ secrets.ABUILD_PRIVATE_KEY }}
-          packager: ${{ env.PACKAGER }}
-
-      - name: Write APKBUILD
-        uses: bbusse/github-workflows/.github/actions/write-apkbuild@dev
-        with:
-          binary_name: ${{ inputs.binary_name }}
-          version: ${{ inputs.version }}
-          pkgrel: ${{ inputs.pkgrel }}
-          pkgdesc: ${{ inputs.pkgdesc }}
-          pkgurl: ${{ inputs.pkgurl }}
-          license: ${{ inputs.license }}
-          alpine_arch: ${{ env.ALPINE_ARCH }}
-          artifact_suffix: ${{ env.ARTIFACT_SUFFIX }}
-          packager: ${{ env.PACKAGER }}
-          bundle_tarball: ${{ inputs.bundle_tarball }}
-          provides: ${{ inputs.provides }}
-          provider_priority: ${{ inputs.provider_priority }}
-          symlinks: ${{ inputs.symlinks }}
-          alt_subpackage: ${{ inputs.alt_subpackage }}
-          working_directory: ./work
-      - name: Build package
-        working-directory: ./work
-        run: |
-          apk update
-          chown -R builder:abuild .
-          sudo -u builder -H sh -c 'CARCH=aarch64 abuild checksum && CARCH=aarch64 abuild -r'
-
-      - name: Stage package
-        uses: bbusse/github-workflows/.github/actions/stage-apk@dev
-        with:
-          packages_dir: /home/builder/packages
-          alpine_arch: ${{ env.ALPINE_ARCH }}
-      - name: Upload apk artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-arm64
-          path: ./out/*.apk
-
-  # build_from_source's arm64 counterpart: needs real arm64 hardware since
-  # abuild actually compiles here (unlike build-apk-arm64 above, which just
-  # relabels a prebuilt binary). Can't use a job-level container on an arm64
-  # runner - GitHub doesn't support JS actions (checkout, up/download-artifact)
-  # inside an Alpine container there - so this runs the Alpine apk-builder
-  # image via a manual `podman run` for just the abuild step instead, with
-  # checkout and artifact upload happening on the bare runner.
   build-apk-arm64-from-source:
     name: Build APK arm64 from source
     if: ${{ inputs.build_from_source }}
     runs-on: ubuntu-24.04-arm
-    env:
-      ALPINE_ARCH: aarch64
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -291,18 +268,24 @@ jobs:
           in_container: 'false'
 
       - name: Build package
+        env:
+          APK_BUILDER_IMAGE: ${{ inputs.apk_builder_image }}
+          KEY_NAME: ${{ inputs.key_name }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
+          set -eu
           mkdir -p ./packages
           podman run --rm \
             -e PACKAGER \
+            -e KEY_NAME="$KEY_NAME" \
             -v "$PWD/work:/work" \
             -v "$PWD/abuild-home/.abuild:/home/builder/.abuild" \
             -v "$PWD/packages:/home/builder/packages" \
-            -w "/work/${{ inputs.working_directory }}" \
-            "${{ inputs.apk_builder_image }}" \
+            -w "/work/${WORKING_DIRECTORY}" \
+            "$APK_BUILDER_IMAGE" \
             sh -c '
               set -e
-              cp "/home/builder/.abuild/${{ inputs.key_name }}.rsa.pub" /etc/apk/keys/
+              cp "/home/builder/.abuild/${KEY_NAME}.rsa.pub" /etc/apk/keys/
               chown -R builder:abuild /work /home/builder/.abuild /home/builder/packages
               apk update
               sudo -u builder -H sh -c "abuild checksum && abuild -r"
@@ -312,7 +295,8 @@ jobs:
         uses: bbusse/github-workflows/.github/actions/stage-apk@dev
         with:
           packages_dir: ./packages
-          alpine_arch: ${{ env.ALPINE_ARCH }}
+          alpine_arch: aarch64
+
       - name: Upload apk artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -1,3 +1,4 @@
+---
 name: Build a Rust binary for a target
 description: >-
   Install the requested Rust toolchain for a target triple, build the binary
@@ -5,7 +6,7 @@ description: >-
 
 inputs:
   toolchain:
-    description: Rust toolchain to install (e.g. stable)
+    description: Rust toolchain to install (e.g. stable, 1.97.1)
     required: true
   target:
     description: Target triple to build for (e.g. aarch64-unknown-linux-gnu)
@@ -24,21 +25,40 @@ inputs:
 runs:
   using: composite
   steps:
+    # rustup ships preinstalled on the GitHub-hosted Linux and macOS images,
+    # so the toolchain is one command rather than a third-party action.
     - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable as of pin date; bump periodically for new Rust releases
-      with:
-        toolchain: ${{ inputs.toolchain }}
-        targets: ${{ inputs.target }}
+      shell: bash
+      env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
+        TARGET: ${{ inputs.target }}
+      run: |
+        set -eu
+        rustup toolchain install "$TOOLCHAIN" --profile minimal --no-self-update
+        rustup target add --toolchain "$TOOLCHAIN" "$TARGET"
+        rustup default "$TOOLCHAIN"
+        rustc --version
+        cargo --version
 
     - name: Build release binary
       shell: bash
       working-directory: ${{ inputs.working_directory }}
-      run: cargo build --release --locked --target "${{ inputs.target }}" --bin "${{ inputs.binary_name }}"
+      env:
+        TARGET: ${{ inputs.target }}
+        BINARY_NAME: ${{ inputs.binary_name }}
+      run: |
+        set -eu
+        cargo build --release --locked --target "$TARGET" --bin "$BINARY_NAME"
 
     - name: Stage artifact
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        TARGET: ${{ inputs.target }}
+        BINARY_NAME: ${{ inputs.binary_name }}
+        ARTIFACT_SUFFIX: ${{ inputs.artifact_suffix }}
       run: |
+        set -eu
         mkdir -p dist
-        cp "target/${{ inputs.target }}/release/${{ inputs.binary_name }}" "dist/${{ inputs.binary_name }}-${{ inputs.artifact_suffix }}"
-        chmod +x "dist/${{ inputs.binary_name }}-${{ inputs.artifact_suffix }}"
+        cp "target/${TARGET}/release/${BINARY_NAME}" "dist/${BINARY_NAME}-${ARTIFACT_SUFFIX}"
+        chmod +x "dist/${BINARY_NAME}-${ARTIFACT_SUFFIX}"

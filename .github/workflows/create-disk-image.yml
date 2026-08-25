@@ -41,11 +41,6 @@ on:
         required: false
         default: ''
         type: string
-      wait-for-job:
-        description: Deprecated, use wait_for_job
-        required: false
-        default: ''
-        type: string
 
 permissions:
   contents: read
@@ -56,20 +51,22 @@ jobs:
     runs-on: ${{ inputs.use_arm_runner && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
       - name: Wait for job
-        if: github.event_name != 'workflow_dispatch' && (inputs.wait_for_job != '' || inputs['wait-for-job'] != '')
-        uses: lewagon/wait-on-check-action@2271c86c146b96545b4e871b855e10ffa6f50773 # v1.9.0
+        if: ${{ github.event_name != 'workflow_dispatch' && inputs.wait_for_job != '' }}
+        uses: bbusse/github-workflows/.github/actions/wait-for-checks@dev
         with:
-          ref: ${{ github.ref }}
-          check-regexp: ${{ inputs.wait_for_job != '' && inputs.wait_for_job || inputs['wait-for-job'] }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 10
+          check_regexp: ${{ inputs.wait_for_job }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Resolve target input
         id: resolve
         shell: bash
+        env:
+          TARGET_INPUT: ${{ inputs.target }}
+          TARGET_DISPATCH: ${{ github.event.inputs.target }}
         run: |
-          TARGET="${{ inputs.target }}"
+          TARGET="$TARGET_INPUT"
           if [ -z "$TARGET" ]; then
-            TARGET="${{ github.event.inputs.target }}"
+            TARGET="$TARGET_DISPATCH"
           fi
           if [ -z "$TARGET" ]; then
             echo "Error: 'target' input is required but not provided." >&2
@@ -95,10 +92,12 @@ jobs:
           VERIFY_FS: ${{ inputs.verify_fs && '1' || '0' }}
           VERIFY_FS_STAGES: ${{ inputs.verify_fs_stages && '1' || '0' }}
           FONT_URLS: ${{ inputs.font_urls }}
+          TARGET: ${{ steps.resolve.outputs.target }}
+          ARCH: ${{ inputs.arch }}
         run: |
-          ls -al
+          set -eu
           sudo ./image-builder/image-builder install
-          image-builder create "${{ steps.resolve.outputs.target }}" "${{ inputs.arch }}"
+          image-builder create "$TARGET" "$ARCH"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

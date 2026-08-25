@@ -1,3 +1,4 @@
+---
 name: Write APKBUILD
 description: >-
   Synthesise an APKBUILD that packages an already-built binary or tarball
@@ -68,64 +69,82 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       env:
+        BINARY_NAME: ${{ inputs.binary_name }}
+        VERSION: ${{ inputs.version }}
+        PKGREL: ${{ inputs.pkgrel }}
+        PKGDESC: ${{ inputs.pkgdesc }}
+        PKGURL: ${{ inputs.pkgurl }}
+        LICENSE: ${{ inputs.license }}
         ALPINE_ARCH: ${{ inputs.alpine_arch }}
         ARTIFACT_SUFFIX: ${{ inputs.artifact_suffix }}
         PACKAGER: ${{ inputs.packager }}
+        BUNDLE_TARBALL: ${{ inputs.bundle_tarball }}
+        PROVIDES: ${{ inputs.provides }}
+        PROVIDER_PRIORITY: ${{ inputs.provider_priority }}
+        SYMLINKS: ${{ inputs.symlinks }}
+        ALT_SUBPACKAGE: ${{ inputs.alt_subpackage }}
       run: |
-        PKGVER="$(echo "${{ inputs.version }}" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
+        set -euo pipefail
+
+        pkgver="$(printf '%s' "$VERSION" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
+        pkgdesc="${PKGDESC:-$BINARY_NAME}"
+        artifact="${BINARY_NAME}-${ARTIFACT_SUFFIX}"
 
         # Emit `ln -s` lines for the symlinks input. $1 is the shell variable
         # name the package function installs into, $2 an indent prefix.
         emit_symlinks() {
           local root="$1" indent="${2:-    }" pair link target
-          for pair in ${{ inputs.symlinks }}; do
+          # shellcheck disable=SC2086 # a space-separated list of pairs
+          set -- $SYMLINKS
+          for pair in "$@"; do
             link="${pair%%=*}"; target="${pair#*=}"
             echo "${indent}mkdir -p \"${root}\"$(dirname "$link")"
             echo "${indent}ln -s ${target} \"${root}\"${link}"
           done
         }
+
         {
-          echo "pkgname=${{ inputs.binary_name }}"
-          echo "pkgver=$PKGVER"
-          echo "pkgrel=${{ inputs.pkgrel }}"
-          echo "pkgdesc=\"${{ inputs.pkgdesc || inputs.binary_name }}\""
-          echo "url=\"${{ inputs.pkgurl }}\""
-          echo "arch=\"$ALPINE_ARCH\""
-          echo "license=\"${{ inputs.license }}\""
-          echo "maintainer=\"$PACKAGER\""
+          echo "pkgname=${BINARY_NAME}"
+          echo "pkgver=${pkgver}"
+          echo "pkgrel=${PKGREL}"
+          echo "pkgdesc=\"${pkgdesc}\""
+          echo "url=\"${PKGURL}\""
+          echo "arch=\"${ALPINE_ARCH}\""
+          echo "license=\"${LICENSE}\""
+          echo "maintainer=\"${PACKAGER}\""
           echo 'source=""'
           echo 'options="!check !strip !tracedeps"'
-          if [[ -n "${{ inputs.alt_subpackage }}" ]]; then
-            echo "subpackages=\"\$pkgname-${{ inputs.alt_subpackage }}:_alt\""
+          if [ -n "$ALT_SUBPACKAGE" ]; then
+            echo "subpackages=\"\$pkgname-${ALT_SUBPACKAGE}:_alt\""
           else
-            if [[ -n "${{ inputs.provides }}" ]]; then
-              echo "provides=\"${{ inputs.provides }}\""
+            if [ -n "$PROVIDES" ]; then
+              echo "provides=\"${PROVIDES}\""
             fi
-            if [[ -n "${{ inputs.provider_priority }}" ]]; then
-              echo "provider_priority=${{ inputs.provider_priority }}"
+            if [ -n "$PROVIDER_PRIORITY" ]; then
+              echo "provider_priority=${PROVIDER_PRIORITY}"
             fi
           fi
           echo ''
         } > APKBUILD
 
-        if [[ "${{ inputs.bundle_tarball }}" == "true" ]]; then
+        if [ "$BUNDLE_TARBALL" = "true" ]; then
           mkdir -p bundle
-          tar -xzf "${{ inputs.binary_name }}-${{ inputs.artifact_suffix }}" -C bundle
+          tar -xzf "$artifact" -C bundle
           {
             echo 'package() {'
-            echo "    mkdir -p \"\$pkgdir\"/usr/lib/${{ inputs.binary_name }}"
-            echo "    cp -a \"\$startdir\"/bundle/${{ inputs.binary_name }}/. \"\$pkgdir\"/usr/lib/${{ inputs.binary_name }}/"
+            echo "    mkdir -p \"\$pkgdir\"/usr/lib/${BINARY_NAME}"
+            echo "    cp -a \"\$startdir\"/bundle/${BINARY_NAME}/. \"\$pkgdir\"/usr/lib/${BINARY_NAME}/"
             echo "    mkdir -p \"\$pkgdir\"/usr/bin"
-            echo "    ln -s /usr/lib/${{ inputs.binary_name }}/${{ inputs.binary_name }}-launcher.sh \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
+            echo "    ln -s /usr/lib/${BINARY_NAME}/${BINARY_NAME}-launcher.sh \"\$pkgdir\"/usr/bin/${BINARY_NAME}"
             echo '}'
           } >> APKBUILD
         else
-          mv "${{ inputs.binary_name }}-${{ inputs.artifact_suffix }}" "${{ inputs.binary_name }}"
-          chmod +x "${{ inputs.binary_name }}"
+          mv "$artifact" "$BINARY_NAME"
+          chmod +x "$BINARY_NAME"
           {
             echo 'package() {'
-            echo "    install -Dm755 \"\$startdir/${{ inputs.binary_name }}\" \"\$pkgdir\"/usr/bin/${{ inputs.binary_name }}"
-            if [[ -z "${{ inputs.alt_subpackage }}" ]]; then
+            echo "    install -Dm755 \"\$startdir/${BINARY_NAME}\" \"\$pkgdir\"/usr/bin/${BINARY_NAME}"
+            if [ -z "$ALT_SUBPACKAGE" ]; then
               emit_symlinks '$pkgdir'
             fi
             echo '}'
@@ -135,20 +154,21 @@ runs:
         # An "alternatives" subpackage: the plain package is installable
         # anywhere, and only this one claims the canonical path, so apk can
         # swap it against whatever provided that path before.
-        if [[ -n "${{ inputs.alt_subpackage }}" ]]; then
+        if [ -n "$ALT_SUBPACKAGE" ]; then
           {
             echo ''
             echo '_alt() {'
-            echo "    pkgdesc=\"${{ inputs.pkgdesc || inputs.binary_name }} (${{ inputs.alt_subpackage }})\""
+            echo "    pkgdesc=\"${pkgdesc} (${ALT_SUBPACKAGE})\""
             echo "    depends=\"\$pkgname=\$pkgver-r\$pkgrel\""
-            if [[ -n "${{ inputs.provides }}" ]]; then
-              echo "    provides=\"${{ inputs.provides }}\""
+            if [ -n "$PROVIDES" ]; then
+              echo "    provides=\"${PROVIDES}\""
             fi
-            if [[ -n "${{ inputs.provider_priority }}" ]]; then
-              echo "    provider_priority=${{ inputs.provider_priority }}"
+            if [ -n "$PROVIDER_PRIORITY" ]; then
+              echo "    provider_priority=${PROVIDER_PRIORITY}"
             fi
             emit_symlinks '$subpkgdir' '    '
             echo '}'
           } >> APKBUILD
         fi
+
         cat APKBUILD

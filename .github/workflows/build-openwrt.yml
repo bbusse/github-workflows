@@ -42,9 +42,12 @@ jobs:
           path: image-builder
 
       - name: Build
+        env:
+          FLAVOUR: ${{ inputs.flavour }}
         run: |
+          set -eu
           sudo ./image-builder/image-builder install
-          image-builder build openwrt ${{ inputs.flavour }}
+          image-builder build openwrt "$FLAVOUR"
           ls -al
 
       # NOTE: these paths are specific to the x86_64 target build_dir/bin

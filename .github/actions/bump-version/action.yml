@@ -1,0 +1,88 @@
+---
+name: Bump the project version in the working tree
+description: >-
+  Write the new version into whichever file tracks release state - a bare
+  VERSION file, or a Cargo.toml (with its Cargo.lock's own self-referential
+  package entry kept in step). Only touches the working tree; committing and
+  pushing is the caller's job.
+
+inputs:
+  version_to_write:
+    description: Value to write into a bare VERSION file
+    required: false
+    default: ''
+  cargo_toml_path:
+    description: >-
+      Path to a Cargo.toml whose `version` field tracks release state instead
+      of a VERSION file. When set, cargo_version is written there and VERSION
+      is left alone.
+    required: false
+    default: ''
+  cargo_version:
+    description: Cargo-shaped version to write into Cargo.toml (e.g. 1.2.0)
+    required: false
+    default: ''
+
+outputs:
+  package_name:
+    description: Package name read from Cargo.toml; empty in VERSION-file mode
+    value: ${{ steps.bump.outputs.package_name }}
+  changed_files:
+    description: Space-separated files this action modified
+    value: ${{ steps.bump.outputs.changed_files }}
+
+runs:
+  using: composite
+  steps:
+    - name: Write version
+      id: bump
+      shell: bash
+      env:
+        VERSION_TO_WRITE: ${{ inputs.version_to_write }}
+        CARGO_TOML: ${{ inputs.cargo_toml_path }}
+        CARGO_VER: ${{ inputs.cargo_version }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$CARGO_TOML" ]; then
+          printf '%s\n' "$VERSION_TO_WRITE" > VERSION
+          {
+            echo "package_name="
+            echo "changed_files=VERSION"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        pkg_name="$(awk -F'"' '
+          /^\[package\]/ { p = 1; next }
+          /^\[/          { p = 0 }
+          p && /^name[[:space:]]*=/ { print $2; exit }
+        ' "$CARGO_TOML")"
+        cargo_lock="$(dirname "$CARGO_TOML")/Cargo.lock"
+
+        awk -v ver="$CARGO_VER" '
+          /^\[package\]/ { p = 1; print; next }
+          /^\[/          { p = 0 }
+          p && /^version[[:space:]]*=/ { print "version = \"" ver "\""; next }
+          { print }
+        ' "$CARGO_TOML" > "$CARGO_TOML.tmp"
+        mv "$CARGO_TOML.tmp" "$CARGO_TOML"
+
+        changed="$CARGO_TOML"
+        if [ -f "$cargo_lock" ]; then
+          # Only the crate's own entry, matched by the name line immediately
+          # preceding its version line - dependencies keep their versions.
+          awk -v pkg="$pkg_name" -v ver="$CARGO_VER" '
+            found && /^version[[:space:]]*=/ { print "version = \"" ver "\""; found = 0; next }
+            { found = 0 }
+            $0 == "name = \"" pkg "\"" { found = 1 }
+            { print }
+          ' "$cargo_lock" > "$cargo_lock.tmp"
+          mv "$cargo_lock.tmp" "$cargo_lock"
+          changed="$changed $cargo_lock"
+        fi
+
+        {
+          echo "package_name=${pkg_name}"
+          echo "changed_files=${changed}"
+        } >> "$GITHUB_OUTPUT"

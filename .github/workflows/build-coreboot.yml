@@ -37,7 +37,10 @@ jobs:
           path: 'image-builder'
 
       - name: Build coreboot
+        env:
+          CONFIG: ${{ inputs.config }}
         run: |
+          set -eu
           sudo ./image-builder/image-builder install
           BUILD_USE_CONTAINER=1 \
-          image-builder build coreboot ${{ inputs.config }}
+            image-builder build coreboot "$CONFIG"

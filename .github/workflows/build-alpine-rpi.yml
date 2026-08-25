@@ -46,10 +46,11 @@ jobs:
       - name: Build
         env:
           ALPINE_ARCH: ${{ matrix.board_arch }}
+          FLAVOUR: ${{ inputs.flavour }}
         run: |
-          ls -al
+          set -eu
           sudo ./image-builder/image-builder install
-          sudo -E image-builder create alpine-${{ inputs.flavour }}
+          sudo -E image-builder create "alpine-${FLAVOUR}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

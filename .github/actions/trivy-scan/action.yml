@@ -1,0 +1,74 @@
+---
+name: Trivy vulnerability scan
+description: >-
+  Scan a filesystem tree or a pushed image for OS and library
+  vulnerabilities. Reports only; the scan never fails the build.
+
+inputs:
+  scan_type:
+    description: One of fs / image
+    required: false
+    default: image
+  scan_ref:
+    description: Path to scan (scan_type fs) or image reference (scan_type image)
+    required: true
+  severity:
+    description: Comma-separated severities to report
+    required: false
+    default: CRITICAL,HIGH
+  trivy_version:
+    description: Trivy release to install
+    required: false
+    default: v0.74.0
+
+runs:
+  using: composite
+  steps:
+    - name: Install trivy
+      shell: bash
+      env:
+        TRIVY_VERSION: ${{ inputs.trivy_version }}
+      run: |
+        set -euo pipefail
+        version="${TRIVY_VERSION#v}"
+        case "$(uname -m)" in
+          x86_64)  arch=64bit ;;
+          aarch64) arch=ARM64 ;;
+          *)       echo "::error::unsupported architecture $(uname -m)" >&2; exit 1 ;;
+        esac
+        tarball="trivy_${version}_Linux-${arch}.tar.gz"
+        base="https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}"
+
+        tmp="$(mktemp -d)"
+        curl -fsSL -o "${tmp}/${tarball}" "${base}/${tarball}"
+        curl -fsSL -o "${tmp}/checksums.txt" "${base}/trivy_${version}_checksums.txt"
+        ( cd "$tmp" && grep " ${tarball}\$" checksums.txt | sha256sum -c - )
+        tar -xzf "${tmp}/${tarball}" -C "$tmp" trivy
+        sudo install -m 0755 "${tmp}/trivy" /usr/local/bin/trivy
+        rm -rf "$tmp"
+        trivy --version
+
+    - name: Run trivy scan
+      shell: bash
+      env:
+        # Pull the vulnerability DBs from AWS ECR: GitHub's own registry
+        # (ghcr.io) returns TOOMANYREQUESTS for them.
+        # Ref: https://github.com/aquasecurity/trivy-action/issues/389
+        TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
+        TRIVY_JAVA_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-java-db:1
+        SCAN_TYPE: ${{ inputs.scan_type }}
+        SCAN_REF: ${{ inputs.scan_ref }}
+        SEVERITY: ${{ inputs.severity }}
+      run: |
+        set -euo pipefail
+        case "$SCAN_TYPE" in
+          fs|image) ;;
+          *) echo "::error::scan_type must be fs or image (got '$SCAN_TYPE')" >&2; exit 1 ;;
+        esac
+        # Reporting only - a finding must not fail the build.
+        trivy "$SCAN_TYPE" \
+          --scanners vuln \
+          --severity "$SEVERITY" \
+          --ignore-unfixed \
+          --exit-code 0 \
+          "$SCAN_REF"

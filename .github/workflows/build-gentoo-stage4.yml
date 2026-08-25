@@ -66,6 +66,8 @@ jobs:
           IMAGE_REMOTE: ${{ inputs.registry }}/${{ inputs.image_name }}-${{ inputs.flavour }}-${{ inputs.arch }}:${{ inputs.tag }}
           REGISTRY: ${{ inputs.registry }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          FLAVOUR: ${{ inputs.flavour }}
+          ARCH: ${{ inputs.arch }}
           GENTOO_OVERLAYS: ${{ inputs.overlays }}
           # image-builder's build_gentoo_stage4() clones gentoo-build
           # itself via a plain URL with no ref - without this it always
@@ -73,9 +75,9 @@ jobs:
           # branch actually triggered this workflow
           GENTOO_BUILD_REF: ${{ github.ref_name }}
         run: |
-          ls -al
+          set -eu
           sudo ./image-builder/image-builder install
-          image-builder build gentoo-${{ inputs.flavour }} ${{ inputs.arch }}
+          image-builder build "gentoo-${FLAVOUR}" "$ARCH"
           echo "$GHCR_TOKEN" | podman login "$REGISTRY" -u "$GITHUB_ACTOR" --password-stdin
           podman tag "$IMAGE_LOCAL" "$IMAGE_REMOTE"
           podman push "$IMAGE_REMOTE"

@@ -26,6 +26,10 @@ jobs:
   build-freebsd:
     runs-on: ubuntu-latest
     name: FreeBSD Rust Build
+    env:
+      WORKING_DIRECTORY: ${{ inputs.working_directory }}
+      BINARY_NAME: ${{ inputs.binary_name }}
+      ARTIFACT_NAME: ${{ inputs.artifact_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -37,14 +41,14 @@ jobs:
           prepare: |
             pkg install -y rust
 
+          envs: 'WORKING_DIRECTORY BINARY_NAME ARTIFACT_NAME'
           run: |
+            set -eu
             freebsd-version
-            pwd
-            ls -lah
-            cd "${{ inputs.working_directory }}"
-            cargo build --release --locked --bin "${{ inputs.binary_name }}"
-            cp "target/release/${{ inputs.binary_name }}" "${{ inputs.artifact_name }}"
-            tar -cJvf "${{ inputs.artifact_name }}-freebsd-amd64.tar.xz" "${{ inputs.artifact_name }}"
+            cd "$WORKING_DIRECTORY"
+            cargo build --release --locked --bin "$BINARY_NAME"
+            cp "target/release/${BINARY_NAME}" "$ARTIFACT_NAME"
+            tar -cJvf "${ARTIFACT_NAME}-freebsd-amd64.tar.xz" "$ARTIFACT_NAME"
             ls -lah
 
       - name: Upload artifact

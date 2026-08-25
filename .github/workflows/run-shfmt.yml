@@ -32,9 +32,11 @@ jobs:
 
       - name: Check formatting (dry-run)
         working-directory: ${{ inputs.working_directory }}
+        env:
+          TARGET_PATH: ${{ inputs.target_path }}
         run: |
           set -euo pipefail
-          target="${{ inputs.target_path }}"
+          target="$TARGET_PATH"
 
           if [[ -f "$target" ]]; then
             files="$target"

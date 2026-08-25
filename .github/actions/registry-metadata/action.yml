@@ -1,8 +1,8 @@
+---
 name: Log in to the registry and resolve image metadata
 description: >-
   Authenticate against ECR or GHCR, resolve the full repository path, and
-  compute the tag set and labels. Exports repository and DEFAULT_TAG into the
-  job environment so later steps can use them.
+  compute the tag set and OCI labels.
 
 inputs:
   container_registry:
@@ -44,10 +44,10 @@ outputs:
     description: Ref-derived tag applied to every build
     value: ${{ steps.tag.outputs.default_tag }}
   tags:
-    description: Newline-separated tag list from docker/metadata-action
+    description: Newline-separated list of fully qualified image references
     value: ${{ steps.meta.outputs.tags }}
   labels:
-    description: OCI labels from docker/metadata-action
+    description: Newline-separated OCI labels
     value: ${{ steps.meta.outputs.labels }}
 
 runs:
@@ -67,11 +67,13 @@ runs:
 
     - name: Login to GitHub Container Registry
       if: inputs.container_registry == 'ghcr'
-      uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ inputs.github_token }}
+      shell: bash
+      env:
+        GHCR_USER: ${{ github.actor }}
+        GHCR_TOKEN: ${{ inputs.github_token }}
+      run: |
+        set -eu
+        printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
     - name: Resolve registry/repo path
       id: repo
@@ -94,9 +96,7 @@ runs:
             *)  echo "image_repository must start with ghcr.io/ (got '$prefix'); without it the push goes to docker.io" >&2; exit 1 ;;
           esac
         fi
-        repository="${prefix}/${IMAGE_NAME}"
-        echo "repository=${repository}" >> "$GITHUB_ENV"
-        echo "repository=${repository}" >> "$GITHUB_OUTPUT"
+        echo "repository=${prefix}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
 
     - name: Resolve default tag
       id: tag
@@ -107,38 +107,52 @@ runs:
       run: |
         set -eu
         short_sha="$(git rev-parse --short HEAD)"
-        default_tag="${REF_NAME////-}_${short_sha}_${RUN_NUMBER}"
-        echo "DEFAULT_TAG=${default_tag}" >> "$GITHUB_ENV"
-        echo "default_tag=${default_tag}" >> "$GITHUB_OUTPUT"
+        echo "default_tag=${REF_NAME////-}_${short_sha}_${RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
-    - name: Build additional tag rules
-      id: additional-tags
+    - name: Resolve tags and labels
+      id: meta
       shell: bash
       env:
+        REPOSITORY: ${{ steps.repo.outputs.repository }}
+        DEFAULT_TAG: ${{ steps.tag.outputs.default_tag }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
         ADDITIONAL_TAGS: ${{ inputs.image_additional_tags }}
+        SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+        REVISION: ${{ github.sha }}
+        TITLE: ${{ inputs.image_name }}
       run: |
-        # Composite steps run with -o pipefail, so grep matching nothing
-        # would abort this block before the closing delimiter is written.
+        set -eu
+
+        # Every image gets the ref-derived tag, "latest", and a long-sha tag;
+        # an explicit image_tag and any additional tags come on top. Order
+        # decides which one lands in the version label, so the most specific
+        # tag goes first. awk drops repeats while keeping that order.
+        {
+          if [ -n "$IMAGE_TAG" ]; then printf '%s\n' "$IMAGE_TAG"; fi
+          printf '%s\n' "$DEFAULT_TAG" latest "sha-${REVISION}"
+          # Composite steps run with -o pipefail, so a grep matching nothing
+          # would abort the block before its closing delimiter is written.
+          printf '%s' "$ADDITIONAL_TAGS" \
+            | tr ',' '\n' \
+            | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+            | { grep -v '^$' || true; }
+        } | awk '!seen[$0]++' > /tmp/tags
+
+        primary="$(head -n 1 /tmp/tags)"
+
         {
           echo "tags<<EOF"
-          if [ -n "$ADDITIONAL_TAGS" ]; then
-            printf '%s' "$ADDITIONAL_TAGS" \
-              | tr ',' '\n' \
-              | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
-              | { grep -v '^$' || true; } \
-              | sed 's/^/type=raw,value=/'
-          fi
+          sed "s|^|${REPOSITORY}:|" /tmp/tags
+          echo "EOF"
+          echo "labels<<EOF"
+          echo "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "org.opencontainers.image.revision=${REVISION}"
+          echo "org.opencontainers.image.source=${SOURCE_URL}"
+          echo "org.opencontainers.image.url=${SOURCE_URL}"
+          echo "org.opencontainers.image.title=${TITLE}"
+          echo "org.opencontainers.image.version=${primary}"
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
 
-    - name: Extract metadata (tags, labels)
-      id: meta
-      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-      with:
-        images: ${{ steps.repo.outputs.repository }}
-        tags: |
-          type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
-          type=raw,enable=true,priority=200,prefix=,suffix=,value=${{ steps.tag.outputs.default_tag }}
-          type=raw,value=latest,enable=true
-          type=sha,enable=true,priority=100,prefix=sha-,suffix=,format=long
-          ${{ steps.additional-tags.outputs.tags }}
+        echo "resolved tags:"
+        sed "s|^|  ${REPOSITORY}:|" /tmp/tags

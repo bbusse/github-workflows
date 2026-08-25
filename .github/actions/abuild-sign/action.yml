@@ -1,3 +1,4 @@
+---
 name: Configure abuild signing key
 description: >-
   Install the PEM-encoded RSA signing key, derive its public half, and point

@@ -78,6 +78,11 @@ jobs:
 
       - name: Determine version
         id: ver
+        env:
+          ALWAYS_RELEASE: ${{ inputs.always_release }}
+          VERSION_OVERRIDE: ${{ inputs.version_override }}
+          CARGO_TOML_PATH: ${{ inputs.cargo_toml_path }}
+          VERSION_BRANCH: ${{ inputs.version_branch }}
         run: |
           to_cargo_version() {
             local v="$1"
@@ -88,35 +93,39 @@ jobs:
             fi
           }
 
-          if [[ "${{ inputs.always_release }}" == "true" ]]; then
+          if [[ "${ALWAYS_RELEASE}" == "true" ]]; then
             short_sha="$(git rev-parse --short HEAD)"
             version="${GITHUB_REF_NAME////-}_${short_sha}_${GITHUB_RUN_NUMBER}"
-            echo "version=${version}"   >> "$GITHUB_OUTPUT"
-            echo "prerelease=false"     >> "$GITHUB_OUTPUT"
+            {
+              echo "version=${version}"
+              echo "prerelease=false"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [[ -n "${{ inputs.version_override }}" ]]; then
+          if [[ -n "${VERSION_OVERRIDE}" ]]; then
             case "${GITHUB_REF_NAME}" in
               rc-*)      prerelease="true" ;;
               release-*) prerelease="false" ;;
               *) echo "Unexpected tag: ${GITHUB_REF_NAME} (expected rc-* or release-*)" >&2; exit 1 ;;
             esac
-            echo "version=${{ inputs.version_override }}"          >> "$GITHUB_OUTPUT"
-            echo "version_to_write=${{ inputs.version_override }}" >> "$GITHUB_OUTPUT"
-            echo "prerelease=${prerelease}"                        >> "$GITHUB_OUTPUT"
-            echo "cargo_version=$(to_cargo_version "${{ inputs.version_override }}")" >> "$GITHUB_OUTPUT"
+            {
+              echo "version=${VERSION_OVERRIDE}"
+              echo "version_to_write=${VERSION_OVERRIDE}"
+              echo "prerelease=${prerelease}"
+              echo "cargo_version=$(to_cargo_version "${VERSION_OVERRIDE}")"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           tag="${GITHUB_REF_NAME}"
 
-          if [[ -n "${{ inputs.cargo_toml_path }}" ]]; then
-            if [[ -n "${{ inputs.version_branch }}" ]]; then
-              git fetch origin "${{ inputs.version_branch }}"
-              cargo_current="$(git show "origin/${{ inputs.version_branch }}:${{ inputs.cargo_toml_path }}" 2>/dev/null | awk -F'"' '/^version[[:space:]]*=/{print $2; exit}')"
+          if [[ -n "${CARGO_TOML_PATH}" ]]; then
+            if [[ -n "${VERSION_BRANCH}" ]]; then
+              git fetch origin "${VERSION_BRANCH}"
+              cargo_current="$(git show "origin/${VERSION_BRANCH}:${CARGO_TOML_PATH}" 2>/dev/null | awk -F'"' '/^version[[:space:]]*=/{print $2; exit}')"
             else
-              cargo_current="$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' "${{ inputs.cargo_toml_path }}")"
+              cargo_current="$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' "${CARGO_TOML_PATH}")"
             fi
 
             if [[ "$cargo_current" =~ ^([0-9]+)\.0\.0-rc([0-9]+)$ ]]; then
@@ -149,16 +158,18 @@ jobs:
               exit 1
             fi
 
-            echo "version=${new}"           >> "$GITHUB_OUTPUT"
-            echo "version_to_write=${new}"  >> "$GITHUB_OUTPUT"
-            echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
-            echo "cargo_version=$(to_cargo_version "$new")" >> "$GITHUB_OUTPUT"
+            {
+              echo "version=${new}"
+              echo "version_to_write=${new}"
+              echo "prerelease=${prerelease}"
+              echo "cargo_version=$(to_cargo_version "$new")"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [[ -n "${{ inputs.version_branch }}" ]]; then
-            git fetch origin "${{ inputs.version_branch }}"
-            current="$(git show "origin/${{ inputs.version_branch }}:VERSION" 2>/dev/null || echo v0)"
+          if [[ -n "${VERSION_BRANCH}" ]]; then
+            git fetch origin "${VERSION_BRANCH}"
+            current="$(git show "origin/${VERSION_BRANCH}:VERSION" 2>/dev/null || echo v0)"
           else
             [[ -f VERSION ]] || echo "v0" > VERSION
             current=$(cat VERSION)
@@ -196,7 +207,9 @@ jobs:
             exit 1
           fi
 
-          echo "version=${new}"                        >> "$GITHUB_OUTPUT"
-          echo "version_to_write=${version_to_write}"   >> "$GITHUB_OUTPUT"
-          echo "prerelease=${prerelease}"                >> "$GITHUB_OUTPUT"
-          echo "cargo_version=$(to_cargo_version "$new")" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=${new}"
+            echo "version_to_write=${version_to_write}"
+            echo "prerelease=${prerelease}"
+            echo "cargo_version=$(to_cargo_version "$new")"
+          } >> "$GITHUB_OUTPUT"

@@ -1,3 +1,4 @@
+---
 name: Aggressive cleanup
 description: >-
   Reclaim disk on a GitHub-hosted runner by removing preinstalled toolchains

@@ -1,3 +1,4 @@
+---
 name: Stage built apk packages
 description: >-
   Collect the .apk files abuild produced into ./out, suffixing each with the

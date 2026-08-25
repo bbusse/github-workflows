@@ -1,0 +1,28 @@
+---
+name: Configure the git identity used for automated commits
+description: >-
+  Set user.name and user.email for commits this workflow creates, so every
+  workflow that commits attributes them the same way.
+
+inputs:
+  name:
+    description: Value for git user.name
+    required: false
+    default: Björn Busse
+  email:
+    description: Value for git user.email
+    required: false
+    default: bj.rn@baerlin.eu
+
+runs:
+  using: composite
+  steps:
+    - name: Configure git identity
+      shell: bash
+      env:
+        GIT_USER_NAME: ${{ inputs.name }}
+        GIT_USER_EMAIL: ${{ inputs.email }}
+      run: |
+        set -eu
+        git config user.name "$GIT_USER_NAME"
+        git config user.email "$GIT_USER_EMAIL"

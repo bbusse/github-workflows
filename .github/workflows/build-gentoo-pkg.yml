@@ -99,25 +99,30 @@ jobs:
         run: echo 'BINPKG_FORMAT="gpkg"' >> /etc/portage/make.conf
 
       - name: Register overlay
+        env:
+          EBUILD_PATH: ${{ inputs.ebuild_path }}
+          VERSION: ${{ inputs.version }}
         run: |
           OVERLAY_NAME="$(cat ./overlay-src/profiles/repo_name)"
-          PKG_DIR_REL="$(dirname "${{ inputs.ebuild_path }}")"
+          PKG_DIR_REL="$(dirname "$EBUILD_PATH")"
           CATEGORY="$(dirname "$PKG_DIR_REL")"
           PKG_NAME="$(basename "$PKG_DIR_REL")"
-          echo "OVERLAY_NAME=$OVERLAY_NAME" >> "$GITHUB_ENV"
-          echo "CATEGORY=$CATEGORY"         >> "$GITHUB_ENV"
-          echo "PKG_NAME=$PKG_NAME"         >> "$GITHUB_ENV"
+          {
+            echo "OVERLAY_NAME=$OVERLAY_NAME"
+            echo "CATEGORY=$CATEGORY"
+            echo "PKG_NAME=$PKG_NAME"
+          } >> "$GITHUB_ENV"
 
           mkdir -p "/var/db/repos/${OVERLAY_NAME}"
           cp -a ./overlay-src/. "/var/db/repos/${OVERLAY_NAME}/"
 
           PKG_DIR="/var/db/repos/${OVERLAY_NAME}/${PKG_DIR_REL}"
-          if [[ -n "${{ inputs.version }}" ]]; then
-            PKG_VERSION="$(echo "${{ inputs.version }}" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
-            mv "/var/db/repos/${OVERLAY_NAME}/${{ inputs.ebuild_path }}" "${PKG_DIR}/${PKG_NAME}-${PKG_VERSION}.ebuild"
+          if [[ -n "$VERSION" ]]; then
+            PKG_VERSION="$(printf '%s' "$VERSION" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
+            mv "/var/db/repos/${OVERLAY_NAME}/${EBUILD_PATH}" "${PKG_DIR}/${PKG_NAME}-${PKG_VERSION}.ebuild"
           else
-            RAW_NAME="$(basename "${{ inputs.ebuild_path }}" .ebuild)"
-            PKG_VERSION="${RAW_NAME#${PKG_NAME}-}"
+            RAW_NAME="$(basename "$EBUILD_PATH" .ebuild)"
+            PKG_VERSION="${RAW_NAME#"${PKG_NAME}"-}"
           fi
           echo "PKG_VERSION=$PKG_VERSION" >> "$GITHUB_ENV"
 

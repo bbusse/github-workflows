@@ -55,21 +55,27 @@ jobs:
       - name: Build Linux Kernel
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFIG: ${{ inputs.config }}
         run: |
+          set -eu
           sudo ./image-builder/image-builder install
           BUILD_USE_CONTAINER=1 \
-          image-builder build linux-kernel ${{ inputs.config }}
+            image-builder build linux-kernel "$CONFIG"
           echo "$GH_TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          podman push ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
+          podman push "ghcr.io/bbusse/linux-kernel-${CONFIG}:latest"
 
       - name: Resolve kernel image file name
         id: resolve-image
         shell: bash
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          CONFIG: ${{ inputs.config }}
         run: |
-          if [ "${{ inputs.platform }}" = "linux/amd64" ]; then
-            echo "name=bzImage-${{ inputs.config }}" >> "$GITHUB_OUTPUT"
+          set -eu
+          if [ "$PLATFORM" = "linux/amd64" ]; then
+            echo "name=bzImage-${CONFIG}" >> "$GITHUB_OUTPUT"
           else
-            echo "name=Image-${{ inputs.config }}" >> "$GITHUB_OUTPUT"
+            echo "name=Image-${CONFIG}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Extract kernel image from build container
@@ -99,8 +105,11 @@ jobs:
       - name: Read kernel version
         id: kernel-version
         shell: bash
+        env:
+          VERSION_DIR: ${{ steps.extract-version.outputs.destination }}
         run: |
-          version="$(tr -d '[:space:]' < "${{ steps.extract-version.outputs.destination }}/kernel-version")"
+          set -eu
+          version="$(tr -d '[:space:]' < "${VERSION_DIR}/kernel-version")"
           if [ -z "${version}" ]; then
             echo "::error::kernelversion file was empty" >&2
             exit 1
@@ -108,9 +117,14 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Move extracted files
+        env:
+          IMAGE_DIR: ${{ steps.extract-image.outputs.destination }}
+          CHECKSUM_DIR: ${{ steps.extract-checksum.outputs.destination }}
+          IMAGE_NAME: ${{ steps.resolve-image.outputs.name }}
         run: |
-          mv "${{ steps.extract-image.outputs.destination }}/${{ steps.resolve-image.outputs.name }}" "${{ steps.resolve-image.outputs.name }}"
-          mv "${{ steps.extract-checksum.outputs.destination }}/${{ steps.resolve-image.outputs.name }}.sha384" "${{ steps.resolve-image.outputs.name }}.sha384"
+          set -eu
+          mv "${IMAGE_DIR}/${IMAGE_NAME}" "$IMAGE_NAME"
+          mv "${CHECKSUM_DIR}/${IMAGE_NAME}.sha384" "${IMAGE_NAME}.sha384"
 
       - name: Upload kernel image artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -1,0 +1,92 @@
+---
+name: Wait for other check runs on this ref
+description: >-
+  Block until every check run whose name matches a regexp has finished on a
+  given ref, and fail if any of them did not succeed. Uses the preinstalled
+  gh CLI.
+
+inputs:
+  check_regexp:
+    description: >-
+      Regexp matched against check-run names, e.g. '^Build '. It must not match
+      the name of the job doing the waiting, which would deadlock until the
+      timeout.
+    required: true
+  ref:
+    description: Ref (branch, tag or SHA) whose check runs to watch
+    required: false
+    default: ${{ github.ref }}
+  interval:
+    description: Seconds between polls
+    required: false
+    default: '10'
+  timeout_minutes:
+    description: Give up and fail after this long
+    required: false
+    default: '120'
+  github_token:
+    description: Token used to query the checks API
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Wait for matching check runs
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        GH_REPO: ${{ github.repository }}
+        CHECK_REGEXP: ${{ inputs.check_regexp }}
+        REF: ${{ inputs.ref }}
+        INTERVAL: ${{ inputs.interval }}
+        TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+      run: |
+        set -euo pipefail
+
+        deadline=$(( $(date +%s) + TIMEOUT_MINUTES * 60 ))
+        echo "waiting for check runs matching /${CHECK_REGEXP}/ on ${REF}"
+
+        while :; do
+          # One line per matching check run: <status><TAB><conclusion><TAB><name>
+          runs="$(
+            gh api --paginate "repos/${GH_REPO}/commits/${REF}/check-runs" \
+              -q '.check_runs[]
+                  | select(.name | test(env.CHECK_REGEXP))
+                  | [.status, (.conclusion // ""), .name]
+                  | @tsv' \
+            || true
+          )"
+
+          if [ -z "$runs" ]; then
+            echo "  no matching check runs yet"
+          else
+            pending="$(printf '%s\n' "$runs" | { grep -cv '^completed' || true; })"
+            if [ "$pending" -eq 0 ]; then
+              printf '%s\n' "$runs" | while IFS="$(printf '\t')" read -r _ conclusion name; do
+                printf '  %s: %s\n' "$name" "$conclusion"
+              done
+              # skipped and neutral are not failures; a skipped dependency is
+              # a legitimate outcome for a matrix leg a caller switched off.
+              failed="$(
+                printf '%s\n' "$runs" \
+                  | awk -F'\t' '$2 != "success" && $2 != "skipped" && $2 != "neutral" { print $3 " (" $2 ")" }'
+              )"
+              if [ -n "$failed" ]; then
+                echo "::error::check runs did not succeed:"
+                printf '%s\n' "$failed" | while IFS= read -r line; do
+                  echo "::error::  ${line}"
+                done
+                exit 1
+              fi
+              echo "all matching check runs succeeded"
+              exit 0
+            fi
+            echo "  $pending of $(printf '%s\n' "$runs" | wc -l | tr -d ' ') still running"
+          fi
+
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "::error::timed out after ${TIMEOUT_MINUTES}m waiting for /${CHECK_REGEXP}/ on ${REF}" >&2
+            exit 1
+          fi
+          sleep "$INTERVAL"
+        done

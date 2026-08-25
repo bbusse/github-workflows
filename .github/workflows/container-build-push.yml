@@ -50,7 +50,7 @@ on:
       container_push_to_registry:
         type: boolean
         description: If to push to registry
-        required: true
+        required: false
         default: true
       container_registry:
         type: string
@@ -128,19 +128,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run trivy repo vulnerability scan
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        env:
-          # Use AWS ECR repo for the trivy-db image, as GitHub's Container
-          # Registry (ghcr.io) is returning a TOOMANYREQUESTS error.
-          # Ref: https://github.com/aquasecurity/trivy-action/issues/389
-          TRIVY_DB_REPOSITORY: 'public.ecr.aws/aquasecurity/trivy-db:2'
-          TRIVY_JAVA_DB_REPOSITORY: 'public.ecr.aws/aquasecurity/trivy-java-db:1'
+        uses: bbusse/github-workflows/.github/actions/trivy-scan@dev
         with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          exit-code: '0'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
+          scan_type: fs
+          scan_ref: .
 
   build-and-push-container:
     name: Build and push container (${{ matrix.platform }})
@@ -244,9 +235,10 @@ jobs:
 
       - name: Run trivy image vulnerability scan
         if: ${{ needs.prepare.outputs.multi != 'true' && inputs.container_push_to_registry }}
-        uses: bbusse/github-workflows/.github/actions/trivy-image-scan@dev
+        uses: bbusse/github-workflows/.github/actions/trivy-scan@dev
         with:
-          image_ref: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.default_tag }}
+          scan_type: image
+          scan_ref: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.default_tag }}
 
       - name: Image digest
         run: echo "${{ steps.container-build-push.outputs.digest || steps.container-build-digest.outputs.digest }}"
@@ -286,11 +278,21 @@ jobs:
         working-directory: /tmp/digests
         env:
           REPOSITORY: ${{ steps.meta.outputs.repository }}
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          set -eu
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf "${REPOSITORY}@sha256:%s " *)
+          set -euo pipefail
+          tag_args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            tag_args+=(-t "$tag")
+          done <<< "$TAGS"
+
+          digest_args=()
+          for digest in *; do
+            digest_args+=("${REPOSITORY}@sha256:${digest}")
+          done
+
+          docker buildx imagetools create "${tag_args[@]}" "${digest_args[@]}"
 
       - name: Inspect image
         env:
@@ -298,6 +300,7 @@ jobs:
         run: docker buildx imagetools inspect "$IMAGE_REF"
 
       - name: Run trivy image vulnerability scan
-        uses: bbusse/github-workflows/.github/actions/trivy-image-scan@dev
+        uses: bbusse/github-workflows/.github/actions/trivy-scan@dev
         with:
-          image_ref: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.default_tag }}
+          scan_type: image
+          scan_ref: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.default_tag }}

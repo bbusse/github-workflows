@@ -1,3 +1,4 @@
+---
 name: Create or update a GitHub Release
 description: >-
   Attach files to a release, creating it if the tag has none yet and updating

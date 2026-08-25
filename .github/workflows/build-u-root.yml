@@ -60,10 +60,11 @@ jobs:
           IMAGE_REMOTE: ${{ inputs.registry }}/${{ inputs.image_name }}-${{ inputs.arch }}:${{ inputs.tag }}
           REGISTRY: ${{ inputs.registry }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          ARCH: ${{ inputs.arch }}
         run: |
-          ls -al
+          set -eu
           sudo ./image-builder/image-builder install
-          image-builder build u-root ${{ inputs.arch }}
+          image-builder build u-root "$ARCH"
           echo "$GHCR_TOKEN" | podman login "$REGISTRY" -u "$GITHUB_ACTOR" --password-stdin
           podman tag "$IMAGE_LOCAL" "$IMAGE_REMOTE"
           podman push "$IMAGE_REMOTE"

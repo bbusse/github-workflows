@@ -26,6 +26,9 @@ jobs:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
+    env:
+      ARCH: ${{ matrix.arch }}
+      IMAGE_BUILDER_REF: ${{ inputs.image_builder_ref }}
     steps:
       # arch is vmactions' own naming (x86_64/aarch64); the host
       # runner stays x86_64 either way per vmactions' own guidance
@@ -38,19 +41,21 @@ jobs:
           usesh: true
           sync: sshfs
           sync-time: true
+          envs: 'ARCH IMAGE_BUILDER_REF'
           run: |
+            set -eu
             pkg install -y bash git sudo
 
             # Build outside the sshfs-shared workspace: buildworld/
             # installworld against a live network mount trips FreeBSD's
             # mtime-based "tried to rebuild during install" safety net
             cd /tmp
-            git clone -b "${{ inputs.image_builder_ref }}" --depth 1 https://github.com/opsboost/image-builder
+            git clone -b "$IMAGE_BUILDER_REF" --depth 1 https://github.com/opsboost/image-builder
             sudo ./image-builder/image-builder install
-            sudo image-builder build nanobsd ${{ matrix.arch }}
+            sudo image-builder build nanobsd "$ARCH"
 
             cp /usr/obj/nanobsd.full/_.disk.full \
-                "$GITHUB_WORKSPACE/nanobsd-${{ matrix.arch }}-full.img"
+                "$GITHUB_WORKSPACE/nanobsd-${ARCH}-full.img"
 
       # A static filename inside the artifact keeps the downstream boot
       # test's download step simple; the artifact name itself (which

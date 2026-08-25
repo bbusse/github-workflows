@@ -29,9 +29,15 @@ jobs:
           go-version: 'stable'
 
       - name: Ensure all files were formatted as per gofmt
+        working-directory: gokrazy
         run: |
-          cd gokrazy
-          [ "$(gofmt -l $(find . -name '*.go') 2>&1)" = "" ]
+          set -eu
+          unformatted="$(find . -name '*.go' -exec gofmt -l {} +)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::not gofmt-clean:"
+            printf '  %s\n' "$unformatted"
+            exit 1
+          fi
 
       - name: install gok CLI
         run: |
@@ -47,11 +53,15 @@ jobs:
           go test -v ./...
 
       - name: generate gokrazy disk image
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
         run: |
+          set -eu
           cd gokrazy
-          export PATH=$PATH:$(go env GOPATH)/bin
+          GOPATH="$(go env GOPATH)"
+          export PATH="${PATH}:${GOPATH}/bin"
           gok new
-          GOARCH=amd64 gok -i virtual overwrite --full ${{ inputs.image_name }} --target_storage_bytes 4294967296
+          GOARCH=amd64 gok -i virtual overwrite --full "$IMAGE_NAME" --target_storage_bytes 4294967296
 
       - name: Upload disk image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

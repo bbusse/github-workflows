@@ -16,6 +16,8 @@ jobs:
   build-freebsd:
     runs-on: ubuntu-latest
     name: FreeBSD Build
+    env:
+      ARTIFACT_NAME: ${{ inputs.artifact_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: FreeBSD Build
@@ -26,12 +28,12 @@ jobs:
           prepare: |
             pkg install -y curl go
 
+          envs: 'ARTIFACT_NAME'
           run: |
+            set -eu
             freebsd-version
-            pwd
-            ls -lah
-            go build -o ${{ inputs.artifact_name }}
-            tar -cJvf ${{ inputs.artifact_name }}-freebsd-amd64.tar.xz ${{ inputs.artifact_name }}
+            go build -o "$ARTIFACT_NAME"
+            tar -cJvf "${ARTIFACT_NAME}-freebsd-amd64.tar.xz" "$ARTIFACT_NAME"
             ls -lah
 
       - name: Upload artifact

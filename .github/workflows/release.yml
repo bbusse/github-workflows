@@ -110,18 +110,24 @@ jobs:
 
       - name: Ensure release_branch has not moved since tagging
         if: ${{ !inputs.always_release }}
+        env:
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
         run: |
-          git fetch origin "${{ inputs.release_branch }}"
-          if ! git merge-base --is-ancestor "origin/${{ inputs.release_branch }}" HEAD; then
-            echo "::error::${{ inputs.release_branch }} has moved since tag ${GITHUB_REF_NAME} was created (a commit landed on ${{ inputs.release_branch }} after this tag, so pushing a VERSION bump on top of the tag would not fast-forward). Re-tag from the current tip of ${{ inputs.release_branch }} and push the tag again." >&2
+          set -eu
+          git fetch origin "$RELEASE_BRANCH"
+          if ! git merge-base --is-ancestor "origin/${RELEASE_BRANCH}" HEAD; then
+            echo "::error::${RELEASE_BRANCH} has moved since tag ${GITHUB_REF_NAME} was created (a commit landed on ${RELEASE_BRANCH} after this tag, so pushing a VERSION bump on top of the tag would not fast-forward). Re-tag from the current tip of ${RELEASE_BRANCH} and push the tag again." >&2
             exit 1
           fi
 
       - name: Ensure version tag does not already exist
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
+          set -eu
           git fetch origin --tags --quiet
-          if git rev-parse -q --verify "refs/tags/${{ needs.version.outputs.version }}" >/dev/null; then
-            echo "::error::Tag ${{ needs.version.outputs.version }} already exists. Delete it (git push origin :refs/tags/${{ needs.version.outputs.version }}) or reconcile the VERSION file so this run resolves to an unused version." >&2
+          if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
+            echo "::error::Tag ${VERSION} already exists. Delete it (git push origin :refs/tags/${VERSION}) or reconcile the VERSION file so this run resolves to an unused version." >&2
             exit 1
           fi
 
@@ -140,86 +146,76 @@ jobs:
           path: ./artifacts
 
       - name: Show downloaded artifacts
+        env:
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
         run: |
+          set -eu
           ls -lah ./artifacts
-          [ -n "$(ls -A ./artifacts 2>/dev/null)" ] || { echo "::error::No artifacts matched ${{ inputs.artifact_name }}-* - nothing to release." >&2; exit 1; }
+          [ -n "$(ls -A ./artifacts 2>/dev/null)" ] || {
+            echo "::error::No artifacts matched ${ARTIFACT_NAME}-* - nothing to release." >&2
+            exit 1
+          }
 
       - name: Stage versioned and latest release files
         env:
           FILE_VERSION: ${{ needs.version.outputs.version }}
         run: |
+          set -eu
           mkdir -p ./release-version ./release-latest
           for f in ./artifacts/*; do
             base="$(basename "$f")"
             case "$base" in
-              *.tar.xz) stem="${base%.tar.xz}"; ext=".tar.xz" ;;
-              *.tar.gz) stem="${base%.tar.gz}"; ext=".tar.gz" ;;
-              *.zip)    stem="${base%.zip}";    ext=".zip" ;;
-              *.dmg)    stem="${base%.dmg}";    ext=".dmg" ;;
-              *.apk)    stem="${base%.apk}";    ext=".apk" ;;
-              *.gpkg.tar) stem="${base%.gpkg.tar}"; ext=".gpkg.tar" ;;
-              *.sha384) stem="${base%.sha384}"; ext=".sha384" ;;
-              *)        stem="$base";           ext="" ;;
+              *.tar.xz)    stem="${base%.tar.xz}";    ext=".tar.xz" ;;
+              *.tar.gz)    stem="${base%.tar.gz}";    ext=".tar.gz" ;;
+              *.zip)       stem="${base%.zip}";       ext=".zip" ;;
+              *.dmg)       stem="${base%.dmg}";       ext=".dmg" ;;
+              *.apk)       stem="${base%.apk}";       ext=".apk" ;;
+              *.gpkg.tar)  stem="${base%.gpkg.tar}";  ext=".gpkg.tar" ;;
+              *.sha384)    stem="${base%.sha384}";    ext=".sha384" ;;
+              *)           stem="$base";              ext="" ;;
             esac
             cp "$f" "./release-version/${stem}-${FILE_VERSION}${ext}"
             cp "$f" "./release-latest/${stem}-latest${ext}"
           done
           chmod +x ./release-version/* ./release-latest/*
 
-      - name: Update VERSION and push
-        if: ${{ !inputs.always_release && inputs.version_branch == '' && inputs.cargo_toml_path == '' }}
-        run: |
-          echo "${{ needs.version.outputs.version_to_write }}" > VERSION
-          git config user.name  "Björn Busse"
-          git config user.email "<bj.rn@baerlin.eu>"
-          git add VERSION
-          git commit -m "Bump VERSION to ${{ needs.version.outputs.version }}"
-          # Tag the VERSION-bump commit with the release version so the
-          # GitHub Release points to the commit that has the correct VERSION file.
-          git tag "${{ needs.version.outputs.version }}"
-          git push origin "HEAD:${{ inputs.release_branch }}"
-          git push origin "${{ needs.version.outputs.version }}"
+      - name: Configure git identity
+        uses: bbusse/github-workflows/.github/actions/git-identity@dev
 
-      - name: Bump Cargo.toml and push
-        if: ${{ !inputs.always_release && inputs.version_branch == '' && inputs.cargo_toml_path != '' }}
+      # Plain mode: bump the version file on release_branch and tag that
+      # commit, so the GitHub Release points at a commit whose version file
+      # already reads the released version.
+      - name: Bump version on release_branch
+        id: bump-release-branch
+        if: ${{ !inputs.always_release && inputs.version_branch == '' }}
+        uses: bbusse/github-workflows/.github/actions/bump-version@dev
+        with:
+          version_to_write: ${{ needs.version.outputs.version_to_write }}
+          cargo_toml_path: ${{ inputs.cargo_toml_path }}
+          cargo_version: ${{ needs.version.outputs.cargo_version }}
+
+      - name: Commit and tag on release_branch
+        if: ${{ !inputs.always_release && inputs.version_branch == '' }}
         env:
-          CARGO_TOML: ${{ inputs.cargo_toml_path }}
-          CARGO_VER: ${{ needs.version.outputs.cargo_version }}
+          CHANGED_FILES: ${{ steps.bump-release-branch.outputs.changed_files }}
+          SUBJECT: ${{ steps.bump-release-branch.outputs.package_name || 'VERSION' }}
+          VERSION: ${{ needs.version.outputs.version }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
         run: |
-          PKG_NAME="$(awk -F'"' '/^\[package\]/{p=1;next} /^\[/{p=0} p && /^name[[:space:]]*=/{print $2; exit}' "$CARGO_TOML")"
-          CARGO_LOCK="$(dirname "$CARGO_TOML")/Cargo.lock"
-
-          awk -v ver="$CARGO_VER" '
-            /^\[package\]/ { p=1; print; next }
-            /^\[/ { p=0 }
-            p && /^version[[:space:]]*=/ { print "version = \"" ver "\""; next }
-            { print }
-          ' "$CARGO_TOML" > "$CARGO_TOML.tmp" && mv "$CARGO_TOML.tmp" "$CARGO_TOML"
-
-          if [[ -f "$CARGO_LOCK" ]]; then
-            awk -v pkg="$PKG_NAME" -v ver="$CARGO_VER" '
-              found && /^version[[:space:]]*=/ { print "version = \"" ver "\""; found=0; next }
-              { found=0 }
-              $0 == "name = \"" pkg "\"" { found=1 }
-              { print }
-            ' "$CARGO_LOCK" > "$CARGO_LOCK.tmp" && mv "$CARGO_LOCK.tmp" "$CARGO_LOCK"
-          fi
-
-          git config user.name  "Björn Busse"
-          git config user.email "<bj.rn@baerlin.eu>"
-          git add "$CARGO_TOML"
-          [[ -f "$CARGO_LOCK" ]] && git add "$CARGO_LOCK"
-          git commit -m "Bump ${PKG_NAME} to ${{ needs.version.outputs.version }}"
-          git tag "${{ needs.version.outputs.version }}"
-          git push origin "HEAD:${{ inputs.release_branch }}"
-          git push origin "${{ needs.version.outputs.version }}"
+          set -eu
+          # shellcheck disable=SC2086 # a space-separated file list
+          git add $CHANGED_FILES
+          git commit -m "Bump ${SUBJECT} to ${VERSION}"
+          git tag "$VERSION"
+          git push origin "HEAD:${RELEASE_BRANCH}"
+          git push origin "$VERSION"
 
       - name: Create GitHub Release
         uses: bbusse/github-workflows/.github/actions/gh-release@dev
         with:
           tag: ${{ needs.version.outputs.version }}
           # In plain mode the version tag already exists (just created above,
-          # pointing at the VERSION-bump commit) so this is ignored. In
+          # pointing at the bump commit) so this is ignored. In
           # always_release/version_branch mode there is no bump commit - the
           # tag doesn't exist yet, so this tells the release action to create
           # it pointing at the commit that was actually built.
@@ -231,57 +227,45 @@ jobs:
 
       - name: Move latest tag
         run: |
-          git config user.name  "Björn Busse"
-          git config user.email "<bj.rn@baerlin.eu>"
+          set -eu
           git tag -f latest
           git push -f origin latest
 
-      - name: Also commit VERSION to version_branch
-        if: ${{ !inputs.always_release && inputs.version_branch != '' && inputs.version_branch != inputs.release_branch && inputs.cargo_toml_path == '' }}
-        run: |
-          git config user.name  "Björn Busse"
-          git config user.email "<bj.rn@baerlin.eu>"
-          git fetch origin "${{ inputs.version_branch }}"
-          git checkout -B "${{ inputs.version_branch }}" "origin/${{ inputs.version_branch }}"
-          echo "${{ needs.version.outputs.version_to_write }}" > VERSION
-          git add VERSION
-          git commit -m "Bump VERSION to ${{ needs.version.outputs.version }}"
-          git push origin "HEAD:${{ inputs.version_branch }}"
-
-      - name: Also bump Cargo.toml on version_branch
-        if: ${{ !inputs.always_release && inputs.version_branch != '' && inputs.version_branch != inputs.release_branch && inputs.cargo_toml_path != '' }}
+      # version_branch mode: release_branch only carries CI plumbing and never
+      # gets a version file, so the bump lands on version_branch's own tip as
+      # an independent single-file commit - not a merge of release_branch's
+      # tree, which would drag along everything that only lives there.
+      - name: Check out version_branch
+        if: ${{ !inputs.always_release && inputs.version_branch != '' && inputs.version_branch != inputs.release_branch }}
         env:
-          CARGO_TOML: ${{ inputs.cargo_toml_path }}
-          CARGO_VER: ${{ needs.version.outputs.cargo_version }}
+          VERSION_BRANCH: ${{ inputs.version_branch }}
         run: |
-          git config user.name  "Björn Busse"
-          git config user.email "<bj.rn@baerlin.eu>"
-          git fetch origin "${{ inputs.version_branch }}"
-          git checkout -B "${{ inputs.version_branch }}" "origin/${{ inputs.version_branch }}"
+          set -eu
+          git fetch origin "$VERSION_BRANCH"
+          git checkout -B "$VERSION_BRANCH" "origin/${VERSION_BRANCH}"
 
-          PKG_NAME="$(awk -F'"' '/^\[package\]/{p=1;next} /^\[/{p=0} p && /^name[[:space:]]*=/{print $2; exit}' "$CARGO_TOML")"
-          CARGO_LOCK="$(dirname "$CARGO_TOML")/Cargo.lock"
+      - name: Bump version on version_branch
+        id: bump-version-branch
+        if: ${{ !inputs.always_release && inputs.version_branch != '' && inputs.version_branch != inputs.release_branch }}
+        uses: bbusse/github-workflows/.github/actions/bump-version@dev
+        with:
+          version_to_write: ${{ needs.version.outputs.version_to_write }}
+          cargo_toml_path: ${{ inputs.cargo_toml_path }}
+          cargo_version: ${{ needs.version.outputs.cargo_version }}
 
-          awk -v ver="$CARGO_VER" '
-            /^\[package\]/ { p=1; print; next }
-            /^\[/ { p=0 }
-            p && /^version[[:space:]]*=/ { print "version = \"" ver "\""; next }
-            { print }
-          ' "$CARGO_TOML" > "$CARGO_TOML.tmp" && mv "$CARGO_TOML.tmp" "$CARGO_TOML"
-
-          if [[ -f "$CARGO_LOCK" ]]; then
-            awk -v pkg="$PKG_NAME" -v ver="$CARGO_VER" '
-              found && /^version[[:space:]]*=/ { print "version = \"" ver "\""; found=0; next }
-              { found=0 }
-              $0 == "name = \"" pkg "\"" { found=1 }
-              { print }
-            ' "$CARGO_LOCK" > "$CARGO_LOCK.tmp" && mv "$CARGO_LOCK.tmp" "$CARGO_LOCK"
-          fi
-
-          git add "$CARGO_TOML"
-          [[ -f "$CARGO_LOCK" ]] && git add "$CARGO_LOCK"
-          git commit -m "Bump ${PKG_NAME} to ${{ needs.version.outputs.version }}"
-          git push origin "HEAD:${{ inputs.version_branch }}"
+      - name: Commit on version_branch
+        if: ${{ !inputs.always_release && inputs.version_branch != '' && inputs.version_branch != inputs.release_branch }}
+        env:
+          CHANGED_FILES: ${{ steps.bump-version-branch.outputs.changed_files }}
+          SUBJECT: ${{ steps.bump-version-branch.outputs.package_name || 'VERSION' }}
+          VERSION: ${{ needs.version.outputs.version }}
+          VERSION_BRANCH: ${{ inputs.version_branch }}
+        run: |
+          set -eu
+          # shellcheck disable=SC2086 # a space-separated file list
+          git add $CHANGED_FILES
+          git commit -m "Bump ${SUBJECT} to ${VERSION}"
+          git push origin "HEAD:${VERSION_BRANCH}"
 
       - name: Create/update latest Release
         uses: bbusse/github-workflows/.github/actions/gh-release@dev
