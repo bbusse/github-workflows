@@ -84,6 +84,11 @@ jobs:
           CARGO_TOML_PATH: ${{ inputs.cargo_toml_path }}
           VERSION_BRANCH: ${{ inputs.version_branch }}
         run: |
+          # Fail loudly rather than computing a version from an empty string:
+          # a missing version_branch on the remote used to silently resolve to
+          # the initial state and re-issue an already-published version.
+          set -eu
+
           to_cargo_version() {
             local v="$1"
             if [[ "$v" =~ ^v([0-9]+)-rc([0-9]+)$ ]]; then
@@ -139,13 +144,18 @@ jobs:
               rc=""
             fi
 
+            # Same arithmetic as the VERSION-file branch below: an rc series
+            # is numbered against the current major and does not advance it;
+            # a release strips the rc suffix and advances the stored version
+            # to the next major, so the following rc opens a fresh series.
             if [[ "$tag" == rc-* ]]; then
               if [[ -n "$rc" ]]; then
                 new="v${major}-rc$(( rc + 1 ))"
               else
-                new="v$(( major + 1 ))-rc0"
+                new="v${major}-rc0"
               fi
               prerelease="true"
+              version_to_write="$new"
             elif [[ "$tag" == release-* ]]; then
               if [[ -n "$rc" ]]; then
                 new="v${major}"
@@ -153,6 +163,7 @@ jobs:
                 new="v$(( major + 1 ))"
               fi
               prerelease="false"
+              version_to_write="v$(( major + 1 ))"
             else
               echo "Unexpected tag: $tag (expected rc-* or release-*)" >&2
               exit 1
@@ -160,9 +171,9 @@ jobs:
 
             {
               echo "version=${new}"
-              echo "version_to_write=${new}"
+              echo "version_to_write=${version_to_write}"
               echo "prerelease=${prerelease}"
-              echo "cargo_version=$(to_cargo_version "$new")"
+              echo "cargo_version=$(to_cargo_version "$version_to_write")"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -211,5 +222,5 @@ jobs:
             echo "version=${new}"
             echo "version_to_write=${version_to_write}"
             echo "prerelease=${prerelease}"
-            echo "cargo_version=$(to_cargo_version "$new")"
+            echo "cargo_version=$(to_cargo_version "$version_to_write")"
           } >> "$GITHUB_OUTPUT"
