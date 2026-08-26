@@ -19,6 +19,10 @@ inputs:
     description: An optional explicit image tag
     required: false
     default: ''
+  image_default_tags:
+    description: Whether to apply the ref-derived tag, latest and sha-<revision>. Set false for a variant that shares a repository with the primary image and must not take latest from it
+    required: false
+    default: 'true'
   image_additional_tags:
     description: Comma and/or newline separated list of additional tags
     required: false
@@ -117,19 +121,24 @@ runs:
         DEFAULT_TAG: ${{ steps.tag.outputs.default_tag }}
         IMAGE_TAG: ${{ inputs.image_tag }}
         ADDITIONAL_TAGS: ${{ inputs.image_additional_tags }}
+        DEFAULT_TAGS: ${{ inputs.image_default_tags }}
         SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
         REVISION: ${{ github.sha }}
         TITLE: ${{ inputs.image_name }}
       run: |
         set -eu
 
-        # Every image gets the ref-derived tag, "latest", and a long-sha tag;
-        # an explicit image_tag and any additional tags come on top. Order
+        # An image gets the ref-derived tag, "latest", and a long-sha tag unless
+        # image_default_tags is false -- a variant sharing a repository with the
+        # primary image sets that, or the two would race for "latest". An
+        # explicit image_tag and any additional tags come on top. Order
         # decides which one lands in the version label, so the most specific
         # tag goes first. awk drops repeats while keeping that order.
         {
           if [ -n "$IMAGE_TAG" ]; then printf '%s\n' "$IMAGE_TAG"; fi
-          printf '%s\n' "$DEFAULT_TAG" latest "sha-${REVISION}"
+          if [ "$DEFAULT_TAGS" != "false" ]; then
+            printf '%s\n' "$DEFAULT_TAG" latest "sha-${REVISION}"
+          fi
           # Composite steps run with -o pipefail, so a grep matching nothing
           # would abort the block before its closing delimiter is written.
           printf '%s' "$ADDITIONAL_TAGS" \

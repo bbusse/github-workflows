@@ -33,6 +33,10 @@ inputs:
   artifact_suffix:
     description: Suffix the downloaded artifact carries (e.g. linux-amd64-musl)
     required: true
+  strip:
+    description: Whether abuild strips the packaged binary. Defaults to true, which is what abuild itself does for a committed APKBUILD; set false to keep symbols for backtraces
+    required: false
+    default: 'true'
   packager:
     description: Value written as maintainer
     required: false
@@ -83,6 +87,7 @@ runs:
         PROVIDER_PRIORITY: ${{ inputs.provider_priority }}
         SYMLINKS: ${{ inputs.symlinks }}
         ALT_SUBPACKAGE: ${{ inputs.alt_subpackage }}
+        STRIP: ${{ inputs.strip }}
       run: |
         set -euo pipefail
 
@@ -113,7 +118,14 @@ runs:
           echo "license=\"${LICENSE}\""
           echo "maintainer=\"${PACKAGER}\""
           echo 'source=""'
-          echo 'options="!check !strip !tracedeps"'
+          # abuild strips a committed APKBUILD's output unless told not to, so
+          # a synthesized one behaves the same way. It is worth real size: an
+          # unstripped rust binary carries tens of MB of symbols
+          if [ "$STRIP" = "false" ]; then
+            echo 'options="!check !strip !tracedeps"'
+          else
+            echo 'options="!check !tracedeps"'
+          fi
           if [ -n "$ALT_SUBPACKAGE" ]; then
             echo "subpackages=\"\$pkgname-${ALT_SUBPACKAGE}:_alt\""
           else
