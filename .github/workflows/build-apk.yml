@@ -14,8 +14,11 @@ name: Build Alpine Package
 #
 # Set build_from_source: true to check out the calling repository and build
 # its own committed APKBUILD directly (abuild compiles from source itself -
-# no prebuilt artifact download, no synthesized APKBUILD, and pkgver/pkgrel/
-# pkgdesc/depends/etc. all come from that file, not from workflow inputs).
+# no prebuilt artifact download, no synthesized APKBUILD, and pkgrel/pkgdesc/
+# depends/etc. all come from that file, not from workflow inputs). Pass version
+# to have a release's computed version replace the APKBUILD's pkgver, so both
+# packaging paths name their assets the same way; leave it unset to keep the
+# pkgver in the file, which is what a package tracking an upstream release wants.
 # Since real compilation happens, the arm64 job runs on a native arm64
 # runner rather than just relabeling an x86-built package.
 
@@ -48,7 +51,7 @@ on:
         default: '.'
         type: string
       version:
-        description: Version to package (e.g. v1, v1-rc0); normalised into an Alpine pkgver. Ignored when build_from_source is set (pkgver comes from APKBUILD).
+        description: "Version to package (e.g. v1, v1-rc0); normalised into an Alpine pkgver. With build_from_source it replaces the APKBUILD's pkgver, which suits a package versioned by its own releases; omit it to keep the file's pkgver, which is what a package tracking an upstream version needs."
         required: false
         default: ''
         type: string
@@ -228,6 +231,27 @@ jobs:
           abuild_private_key: ${{ secrets.ABUILD_PRIVATE_KEY }}
           packager: ${{ env.PACKAGER }}
 
+      # One packaging path for both cases: a caller that computes a version
+      # (releases do) has it win over the APKBUILD's own pkgver, so building
+      # from source yields the same asset names the synthesized APKBUILD does.
+      # This suits an APKBUILD that builds the checkout it ships with; one that
+      # fetches a versioned source= tarball would now look for a release that
+      # does not exist, so such packages should not be passed a version
+      - name: Override pkgver
+        if: ${{ inputs.version != '' }}
+        working-directory: ./work/${{ inputs.working_directory }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          pkgver="$(printf '%s' "$VERSION" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
+          awk -v v="$pkgver" '
+              /^pkgver=/ && !done { print "pkgver=" v; done = 1; next }
+              { print }
+          ' APKBUILD > APKBUILD.new
+          mv APKBUILD.new APKBUILD
+          grep '^pkgver=' APKBUILD
+
       - name: Build package
         working-directory: ./work/${{ inputs.working_directory }}
         run: |
@@ -266,6 +290,27 @@ jobs:
           packager: ${{ env.PACKAGER }}
           abuild_home: ./abuild-home/.abuild
           in_container: 'false'
+
+      # One packaging path for both cases: a caller that computes a version
+      # (releases do) has it win over the APKBUILD's own pkgver, so building
+      # from source yields the same asset names the synthesized APKBUILD does.
+      # This suits an APKBUILD that builds the checkout it ships with; one that
+      # fetches a versioned source= tarball would now look for a release that
+      # does not exist, so such packages should not be passed a version
+      - name: Override pkgver
+        if: ${{ inputs.version != '' }}
+        working-directory: ./work/${{ inputs.working_directory }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          pkgver="$(printf '%s' "$VERSION" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
+          awk -v v="$pkgver" '
+              /^pkgver=/ && !done { print "pkgver=" v; done = 1; next }
+              { print }
+          ' APKBUILD > APKBUILD.new
+          mv APKBUILD.new APKBUILD
+          grep '^pkgver=' APKBUILD
 
       - name: Build package
         env:
