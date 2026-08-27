@@ -244,7 +244,7 @@ jobs:
         uses: bbusse/github-workflows/.github/actions/trivy-scan@dev
         with:
           scan_type: image
-          scan_ref: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.default_tag }}
+          scan_ref: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.primary_tag }}
 
       - name: Image digest
         run: echo "${{ steps.container-build-push.outputs.digest || steps.container-build-digest.outputs.digest }}"
@@ -303,11 +303,11 @@ jobs:
 
       - name: Inspect image
         env:
-          IMAGE_REF: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.default_tag }}
+          IMAGE_REF: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.primary_tag }}
         run: docker buildx imagetools inspect "$IMAGE_REF"
 
       - name: Run trivy image vulnerability scan
         uses: bbusse/github-workflows/.github/actions/trivy-scan@dev
         with:
           scan_type: image
-          scan_ref: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.default_tag }}
+          scan_ref: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.primary_tag }}

@@ -47,6 +47,9 @@ outputs:
   default_tag:
     description: Ref-derived tag applied to every build
     value: ${{ steps.tag.outputs.default_tag }}
+  primary_tag:
+    description: First resolved tag, and the one that is always pushed. Use this to refer to the image; default_tag is absent when image_default_tags is false
+    value: ${{ steps.meta.outputs.primary_tag }}
   tags:
     description: Newline-separated list of fully qualified image references
     value: ${{ steps.meta.outputs.tags }}
@@ -150,6 +153,7 @@ runs:
         primary="$(head -n 1 /tmp/tags)"
 
         {
+          echo "primary_tag=${primary}"
           echo "tags<<EOF"
           sed "s|^|${REPOSITORY}:|" /tmp/tags
           echo "EOF"
