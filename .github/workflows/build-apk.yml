@@ -51,9 +51,9 @@ on:
         default: '.'
         type: string
       strip:
-        description: Set 'false' to keep symbols in the packaged binary; defaults to stripping, which is what abuild does for a committed APKBUILD
+        description: Set 'true' to have abuild strip the packaged binary. Only safe when the runner arch matches the package arch; strip in the producing job instead
         required: false
-        default: 'true'
+        default: 'false'
         type: string
       version:
         description: "Version to package (e.g. v1, v1-rc0); normalised into an Alpine pkgver. With build_from_source it replaces the APKBUILD's pkgver, which suits a package versioned by its own releases; omit it to keep the file's pkgver, which is what a package tracking an upstream version needs."

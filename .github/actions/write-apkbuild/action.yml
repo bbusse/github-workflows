@@ -34,9 +34,9 @@ inputs:
     description: Suffix the downloaded artifact carries (e.g. linux-amd64-musl)
     required: true
   strip:
-    description: Whether abuild strips the packaged binary. Defaults to true, which is what abuild itself does for a committed APKBUILD; set false to keep symbols for backtraces
+    description: Whether abuild strips the packaged binary. Defaults to false -- this path packages a prebuilt binary, possibly for another arch, and abuild's strip needs a triplet-prefixed tool that is not shipped. Strip in the job that builds the binary instead
     required: false
-    default: 'true'
+    default: 'false'
   packager:
     description: Value written as maintainer
     required: false
