@@ -17,6 +17,11 @@ on:
         description: A comma and/or newline separated list of additional tags to apply to the image
         required: false
         default: ''
+      image_variant:
+        type: string
+        description: Distinguishes two builds of the same image_name so their digest artifacts do not collide. When two jobs share an image_name, BOTH must set this -- an unset one globs over the other's artifacts and assembles a manifest from the wrong digests
+        required: false
+        default: ''
       image_default_tags:
         type: string
         description: Set 'false' to skip the ref-derived, latest and sha-<revision> tags, for a variant sharing a repository with the primary image
@@ -234,7 +239,7 @@ jobs:
         if: ${{ needs.prepare.outputs.multi == 'true' && inputs.container_push_to_registry }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: digests-${{ inputs.image_name }}-${{ matrix.slug }}
+          name: digests-${{ inputs.image_name }}${{ inputs.image_variant && format('-{0}', inputs.image_variant) || '' }}-${{ matrix.slug }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -264,7 +269,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: /tmp/digests
-          pattern: digests-${{ inputs.image_name }}-*
+          pattern: digests-${{ inputs.image_name }}${{ inputs.image_variant && format('-{0}', inputs.image_variant) || '' }}-*
           merge-multiple: true
 
       - name: Log in and resolve image metadata
