@@ -1,0 +1,103 @@
+---
+name: Run python lint
+
+# flake8 in two passes: a hard gate on things that are unambiguously broken
+# (syntax errors, undefined names), then the full style pass. The style pass is
+# advisory by default so a line-length nit cannot block a release; set strict
+# to make it fail the build instead.
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Directory to run flake8 from
+        required: false
+        default: .
+        type: string
+      target_path:
+        description: Path to lint, relative to working_directory
+        required: false
+        default: .
+        type: string
+      python_version:
+        description: Python version to set up
+        required: false
+        default: '3.12'
+        type: string
+      max_line_length:
+        description: Longest permitted line in the style pass
+        required: false
+        default: '127'
+        type: string
+      max_complexity:
+        description: McCabe complexity ceiling in the style pass
+        required: false
+        default: '10'
+        type: string
+      plugins:
+        description: >-
+          Space separated pip specs for flake8 plugins, e.g.
+          "flake8-bugbear==22.1.11 flake8-black".
+        required: false
+        default: ''
+        type: string
+      strict:
+        description: >-
+          Fail the build on style findings too, not just on the syntax and
+          undefined-name gate.
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  python-lint:
+    name: Lint python
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install flake8
+        env:
+          PLUGINS: ${{ inputs.plugins }}
+        run: |
+          set -eu
+          # shellcheck disable=SC2086 # a space-separated list of pip specs
+          python -m pip install --disable-pip-version-check flake8 $PLUGINS
+          flake8 --version
+
+      - name: Lint
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TARGET_PATH: ${{ inputs.target_path }}
+          MAX_LINE_LENGTH: ${{ inputs.max_line_length }}
+          MAX_COMPLEXITY: ${{ inputs.max_complexity }}
+          STRICT: ${{ inputs.strict }}
+        run: |
+          set -eu
+
+          # Never advisory: these are errors in any style.
+          flake8 "$TARGET_PATH" \
+            --count \
+            --select=E9,F63,F7,F82 \
+            --show-source \
+            --statistics
+
+          exit_zero=(--exit-zero)
+          if [ "$STRICT" = "true" ]; then
+            exit_zero=()
+          fi
+          flake8 "$TARGET_PATH" \
+            --count \
+            --max-complexity="$MAX_COMPLEXITY" \
+            --max-line-length="$MAX_LINE_LENGTH" \
+            --statistics \
+            "${exit_zero[@]}"

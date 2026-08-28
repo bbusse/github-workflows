@@ -37,6 +37,28 @@ on:
         required: false
         default: false
         type: boolean
+      apt_packages:
+        description: >-
+          Space separated extra apt packages the test suite needs, e.g.
+          "qrencode netcat-openbsd file".
+        required: false
+        default: ''
+        type: string
+      pip_install:
+        description: >-
+          Argument passed to `pip install` before the tests run, e.g. ".[service]"
+          to install the checked-out project with its service extras.
+        required: false
+        default: ''
+        type: string
+      stick_to_cwd:
+        description: >-
+          Keep bash_unit in working_directory instead of letting it cd into each
+          test file's own directory. Leave true unless a suite resolves paths
+          relative to its own location.
+        required: false
+        default: true
+        type: boolean
       build_container:
         description: Build a container image from a Containerfile/Dockerfile before running tests
         required: false
@@ -120,12 +142,29 @@ jobs:
           "$executor" build -t "$CONTAINER_IMAGE_NAME" -f "$container_file" "$CONTAINER_BUILD_CONTEXT"
 
       - name: Install system dependencies
+        env:
+          APT_PACKAGES: ${{ inputs.apt_packages }}
         run: |
           set -eu
           sudo apt-get update
+          # shellcheck disable=SC2086 # a space-separated package list
           sudo apt-get install -y --no-install-recommends \
             curl \
-            python3
+            python3 \
+            $APT_PACKAGES
+
+      - name: Install python packages
+        if: ${{ inputs.pip_install != '' }}
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          PIP_INSTALL: ${{ inputs.pip_install }}
+        run: |
+          set -eu
+          sudo apt-get install -y --no-install-recommends python3-pip python3-venv
+          python3 -m venv .venv
+          # shellcheck disable=SC2086 # may name several packages or extras
+          ./.venv/bin/pip install --disable-pip-version-check $PIP_INSTALL
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Install qemu test dependencies
         if: ${{ inputs.install_qemu_deps }}
@@ -174,11 +213,12 @@ jobs:
 
       - name: Run bash_unit tests
         working-directory: ${{ inputs.working_directory }}
-        # bash_unit otherwise cd's into the test file's own directory before
-        # running it, which breaks relative paths (like a downloaded disk-image
-        # artifact) that assume working_directory.
+        # With stick_to_cwd, bash_unit stays in working_directory rather than
+        # cd'ing into each test file's own directory, which would break relative
+        # paths (like a downloaded disk-image artifact) that assume it. Suites
+        # that resolve paths relative to themselves want it off.
         env:
-          STICK_TO_CWD: 'true'
+          STICK_TO_CWD: ${{ inputs.stick_to_cwd && 'true' || 'false' }}
           QEMU_ARCH: ${{ inputs.test_arch }}
           TEST_FILES: ${{ inputs.test_files }}
         run: |

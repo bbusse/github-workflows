@@ -94,7 +94,7 @@ jobs:
       # error anywhere. Stage the artifact from this commit's own stage4 run
       # instead; image-builder prefers a locally staged tarball over the
       # release. Best effort - if no matching run is found we fall back to
-      # the release rather than failing the build.
+      # the release rather than failing the build
       - name: Stage stage4 from this commit's build
         continue-on-error: true
         env:
