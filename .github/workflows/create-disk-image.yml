@@ -87,6 +87,41 @@ jobs:
           ref: dev
           path: image-builder
 
+      # The stage4 that image-builder would otherwise fetch comes from the
+      # "latest" release tag, which a separate workflow publishes. Fetching
+      # it here races that upload: a disk image job starting before the
+      # upload completes silently builds from the *previous* stage4, with no
+      # error anywhere. Stage the artifact from this commit's own stage4 run
+      # instead; image-builder prefers a locally staged tarball over the
+      # release. Best effort - if no matching run is found we fall back to
+      # the release rather than failing the build.
+      - name: Stage stage4 from this commit's build
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ steps.resolve.outputs.target }}
+          ARCH: ${{ inputs.arch }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          flavour="${TARGET#gentoo-}"
+          artifact="gentoo-stage4-${flavour}-${ARCH}"
+          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" \
+                      --workflow "Build Gentoo Stage4" \
+                      --commit "$SHA" --status success \
+                      --json databaseId --jq '.[0].databaseId' || true)"
+          if [ -z "${run_id:-}" ] || [ "${run_id}" = "null" ]; then
+              echo "No successful stage4 run for ${SHA}, using the release"
+              exit 0
+          fi
+          if gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+                 --name "$artifact" --dir .; then
+              echo "Staged ${artifact} from run ${run_id}"
+              ls -la ./*.tar.xz || true
+          else
+              echo "Artifact ${artifact} not in run ${run_id}, using the release"
+          fi
+
       - name: Build
         env:
           VERIFY_FS: ${{ inputs.verify_fs && '1' || '0' }}
