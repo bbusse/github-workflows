@@ -69,12 +69,13 @@ jobs:
         working-directory: ${{ inputs.working_directory }}/build/macos/Build/Products/Release
         env:
           APP_NAME: ${{ inputs.app_name }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name || github.event.repository.name }}
         run: |
           set -eu
-          ditto -c -k --sequesterRsrc --keepParent "${APP_NAME}.app" "${APP_NAME}-macos.zip"
+          ditto -c -k --sequesterRsrc --keepParent "${APP_NAME}.app" "${ARTIFACT_NAME}-macos.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact_name || github.event.repository.name }}-macos
-          path: ${{ inputs.working_directory }}/build/macos/Build/Products/Release/${{ inputs.app_name }}-macos.zip
+          path: ${{ inputs.working_directory }}/build/macos/Build/Products/Release/${{ inputs.artifact_name || github.event.repository.name }}-macos.zip

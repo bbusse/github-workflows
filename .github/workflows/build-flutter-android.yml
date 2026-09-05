@@ -61,8 +61,14 @@ jobs:
           # shellcheck disable=SC2086 # space-separated extra flags
           flutter build apk --release $BUILD_ARGS
 
+      - name: Rename APK
+        working-directory: ${{ inputs.working_directory }}/build/app/outputs/flutter-apk
+        env:
+          ARTIFACT_NAME: ${{ inputs.artifact_name || github.event.repository.name }}
+        run: mv app-release.apk "${ARTIFACT_NAME}.apk"
+
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact_name || github.event.repository.name }}-apk
-          path: ${{ inputs.working_directory }}/build/app/outputs/flutter-apk/app-release.apk
+          path: ${{ inputs.working_directory }}/build/app/outputs/flutter-apk/${{ inputs.artifact_name || github.event.repository.name }}.apk
