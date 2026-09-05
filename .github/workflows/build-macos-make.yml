@@ -1,0 +1,87 @@
+---
+name: macOS Make Build
+
+# Apple platforms need a macOS runner with Xcode. The caller's Makefile owns
+# the build, this only supplies the runner, optionally xcodegen, and the
+# artifact upload, so the workflow knows nothing about any one project
+
+on:
+  workflow_call:
+    inputs:
+      make_targets:
+        description: Space-separated make targets to run, in order
+        required: false
+        default: build
+        type: string
+      working_directory:
+        description: Directory (relative to the repository root) holding the Makefile
+        required: false
+        default: '.'
+        type: string
+      xcodegen:
+        description: Run 'xcodegen generate' before make
+        required: false
+        default: false
+        type: boolean
+      app_path:
+        description: Built .app to upload, relative to working_directory. Empty uploads nothing
+        required: false
+        default: ''
+        type: string
+      artifact_name:
+        description: Uploaded artifact name (defaults to the repository name)
+        required: false
+        default: ''
+        type: string
+      macos_runner:
+        description: Runner image
+        required: false
+        default: macos-latest
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build macOS app
+    runs-on: ${{ inputs.macos_runner }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Homebrew formulae cannot be pinned to a version without a tap of our
+      # own, so this tracks whatever homebrew/core ships
+      - name: Install xcodegen
+        if: inputs.xcodegen
+        run: brew install xcodegen
+
+      - name: Generate project
+        if: inputs.xcodegen
+        run: xcodegen generate
+
+      - name: Make
+        env:
+          MAKE_TARGETS: ${{ inputs.make_targets }}
+        run: |
+          set -eu
+          # shellcheck disable=SC2086 # space-separated target list
+          make $MAKE_TARGETS
+
+      - name: Archive .app
+        if: inputs.app_path != ''
+        env:
+          APP_PATH: ${{ inputs.app_path }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name || github.event.repository.name }}
+        run: |
+          set -eu
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "${ARTIFACT_NAME}-macos.zip"
+
+      - name: Upload artifact
+        if: inputs.app_path != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name || github.event.repository.name }}-macos
+          path: ${{ inputs.working_directory }}/${{ inputs.artifact_name || github.event.repository.name }}-macos.zip
