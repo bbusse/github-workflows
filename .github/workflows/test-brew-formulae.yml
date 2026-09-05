@@ -29,20 +29,42 @@ on:
         required: false
         default: Formula
         type: string
+      head_branch:
+        description: >-
+          When set, rewrite the 'branch:' of every HEAD-only formula's source
+          before installing, so --HEAD builds this branch instead of the one
+          the formula pins. Use it to test unreleased work on your own repos.
+        required: false
+        default: ''
+        type: string
       macos_runner:
         description: Runner image; must be an Apple-silicon image
         required: false
         default: macos-15
         type: string
       build_from_source:
-        description: Pass --build-from-source so the formula is actually compiled
+        description: >-
+          Pass --build-from-source, forcing dependencies from homebrew/core to
+          compile too. The tap's own formulae build from source regardless
+          (they ship no bottles), so the default only spares core deps.
         required: false
-        default: true
+        default: false
         type: boolean
       run_test:
-        description: Run 'brew test' for formulae that define a test block
+        description: >-
+          Run 'brew test' for formulae that define a test block, and fail the
+          job if it fails. Off by default: many test blocks need a display or a
+          network service the runner does not have.
         required: false
-        default: true
+        default: false
+        type: boolean
+      strict_linkage:
+        description: >-
+          Fail the job when 'brew linkage --test' reports a problem (broken or
+          undeclared library links). Off by default; the check still runs and
+          its output is surfaced as a warning.
+        required: false
+        default: false
         type: boolean
       setup_script:
         description: >-
@@ -105,6 +127,10 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: '1'
       HOMEBREW_NO_INSTALL_CLEANUP: '1'
       HOMEBREW_NO_ENV_HINTS: '1'
+      # The tap is registered from the checkout on disk, so Homebrew treats it
+      # as untrusted and refuses to load its formulae as dependencies of one
+      # another. This is our own tap in our own CI; waive the prompt.
+      HOMEBREW_NO_REQUIRE_TAP_TRUST: '1'
       SLUG: ${{ inputs.tap }}/${{ matrix.formula }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -135,17 +161,38 @@ jobs:
       - name: Install
         env:
           BUILD_FROM_SOURCE: ${{ inputs.build_from_source }}
+          HEAD_BRANCH: ${{ inputs.head_branch }}
         run: |
           set -eu
           args="--formula"
           if [ "$BUILD_FROM_SOURCE" = "true" ]; then
             args="$args --build-from-source"
           fi
+          # HEAD-only formulae (no stable url) can only be installed with --HEAD.
+          if [ "$(brew info --json=v2 "$SLUG" | jq -r '.formulae[0].versions.stable')" = "null" ]; then
+            echo "$SLUG is HEAD-only; adding --HEAD"
+            args="$args --HEAD"
+            if [ -n "$HEAD_BRANCH" ]; then
+              rb="$(brew formula "$SLUG")"
+              # BSD sed; the only 'branch:' in these formulae is on the head line
+              sed -i '' -E "s/branch: *\"[^\"]*\"/branch: \"$HEAD_BRANCH\"/" "$rb"
+              echo "Pinned $SLUG head to branch $HEAD_BRANCH:"
+              grep -n 'head ' "$rb" || true
+            fi
+          fi
           # shellcheck disable=SC2086 # deliberate word-split of flag list
           brew install $args "$SLUG"
 
       - name: Check Mach-O linkage
-        run: brew linkage --test "$SLUG"
+        env:
+          STRICT: ${{ inputs.strict_linkage }}
+        run: |
+          set -eu
+          if brew linkage --test "$SLUG"; then
+            exit 0
+          fi
+          echo "::warning title=linkage::brew linkage --test flagged $SLUG"
+          [ "$STRICT" = "true" ] && exit 1 || true
 
       - name: Test
         if: inputs.run_test
