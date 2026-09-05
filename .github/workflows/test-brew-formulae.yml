@@ -1,0 +1,158 @@
+---
+name: Test-install Homebrew formulae
+
+# Taps the calling repository and, for every formula, builds and installs it on
+# an Apple-silicon macOS runner, then checks Mach-O linkage and runs the
+# formula's test block. One job per formula (fail-fast off) so a single broken
+# formula is obvious and does not mask the others.
+#
+# Anything tap-specific — unlinking a formula that collides, uninstalling a
+# dependency that has to be rebuilt from source — belongs in setup_script,
+# supplied by the caller. This workflow knows nothing about any one tap.
+
+on:
+  workflow_call:
+    inputs:
+      tap:
+        description: Tap name to register the checkout under (e.g. owner/tap)
+        required: true
+        type: string
+      formulae:
+        description: >-
+          Whitespace-separated formula names to test. Empty means every .rb
+          file under formula_dir.
+        required: false
+        default: ''
+        type: string
+      formula_dir:
+        description: Directory in the checkout holding the formula files
+        required: false
+        default: Formula
+        type: string
+      macos_runner:
+        description: Runner image; must be an Apple-silicon image
+        required: false
+        default: macos-15
+        type: string
+      build_from_source:
+        description: Pass --build-from-source so the formula is actually compiled
+        required: false
+        default: true
+        type: boolean
+      run_test:
+        description: Run 'brew test' for formulae that define a test block
+        required: false
+        default: true
+        type: boolean
+      setup_script:
+        description: >-
+          Bash run on the runner after the tap is registered and before any
+          install, once per formula job. Use it for tap-specific conflict
+          handling.
+        required: false
+        default: ''
+        type: string
+      timeout_minutes:
+        description: Per-formula job timeout
+        required: false
+        default: 120
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  enumerate:
+    name: List formulae
+    runs-on: ubuntu-latest
+    outputs:
+      formulae: ${{ steps.list.outputs.formulae }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the formula list
+        id: list
+        env:
+          FORMULAE: ${{ inputs.formulae }}
+          FORMULA_DIR: ${{ inputs.formula_dir }}
+        run: |
+          set -euo pipefail
+          if [ -n "$FORMULAE" ]; then
+            names="$FORMULAE"
+          else
+            names="$(find "$FORMULA_DIR" -maxdepth 1 -name '*.rb' -exec basename {} .rb ';')"
+          fi
+          # word-split on whitespace, drop blanks, dedupe, emit a JSON array
+          # shellcheck disable=SC2086
+          json="$(printf '%s\n' $names | sort -u | jq -R . | jq -cs 'map(select(length > 0))')"
+          if [ "$json" = '[]' ]; then
+            echo "No formulae found (formula_dir=$FORMULA_DIR)" >&2
+            exit 1
+          fi
+          echo "formulae=$json" >> "$GITHUB_OUTPUT"
+          echo "Testing: $json"
+
+  test:
+    name: ${{ matrix.formula }}
+    needs: enumerate
+    runs-on: ${{ inputs.macos_runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        formula: ${{ fromJSON(needs.enumerate.outputs.formulae) }}
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      HOMEBREW_NO_ENV_HINTS: '1'
+      SLUG: ${{ inputs.tap }}/${{ matrix.formula }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Report toolchain
+        run: |
+          set -eu
+          sw_vers
+          arch="$(uname -m)"
+          echo "arch: $arch"
+          if [ "$arch" != "arm64" ]; then
+            echo "This workflow requires an Apple-silicon runner; got $arch" >&2
+            exit 1
+          fi
+          brew config | grep -iE 'macOS|CPU|Clang' || true
+
+      - name: Register the tap
+        env:
+          TAP: ${{ inputs.tap }}
+        run: brew tap "$TAP" "$GITHUB_WORKSPACE"
+
+      - name: Tap-specific setup
+        if: inputs.setup_script != ''
+        env:
+          SETUP_SCRIPT: ${{ inputs.setup_script }}
+        run: bash -c "$SETUP_SCRIPT"
+
+      - name: Install
+        env:
+          BUILD_FROM_SOURCE: ${{ inputs.build_from_source }}
+        run: |
+          set -eu
+          args="--formula"
+          if [ "$BUILD_FROM_SOURCE" = "true" ]; then
+            args="$args --build-from-source"
+          fi
+          # shellcheck disable=SC2086 # deliberate word-split of flag list
+          brew install $args "$SLUG"
+
+      - name: Check Mach-O linkage
+        run: brew linkage --test "$SLUG"
+
+      - name: Test
+        if: inputs.run_test
+        run: |
+          set -eu
+          if brew cat "$SLUG" | grep -qE '^[[:space:]]*test do'; then
+            brew test --verbose "$SLUG"
+          else
+            echo "No test block in $SLUG; skipping"
+          fi
