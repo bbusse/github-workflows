@@ -1,0 +1,150 @@
+---
+name: Flutter Build
+
+# One workflow for every Flutter target. `target` selects the platform and
+# the runner, precache flag, build command and artifact packaging all follow
+# from it. This replaced build-flutter-android.yml and build-flutter-macos.yml,
+# which were near-identical files, and adds linux and web.
+#
+# Each target runs `flutter analyze` and `flutter test` before building, so a
+# caller building N targets gets N check runs - cheap for most projects and it
+# keeps every job self-contained.
+#
+# Flutter is not preinstalled on any runner; install-flutter clones it at the
+# pinned ref rather than pulling a third-party action.
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: Platform to build - one of android, macos, linux, web
+        required: true
+        type: string
+      flutter_version:
+        description: Flutter ref to build with (channel, tag, or version, e.g. stable or 3.47.2)
+        required: true
+        type: string
+      working_directory:
+        description: Directory (relative to the repository root) containing the Flutter project
+        required: false
+        default: '.'
+        type: string
+      build_args:
+        description: Extra arguments appended to 'flutter build <target> --release'
+        required: false
+        default: ''
+        type: string
+      base_href:
+        description: --base-href for 'flutter build web'; ignored for other targets
+        required: false
+        default: '/'
+        type: string
+      app_name:
+        description: >-
+          macOS .app bundle name under build/macos/Build/Products/Release (the
+          project's PRODUCT_NAME). Required when target is macos, ignored otherwise.
+        required: false
+        default: ''
+        type: string
+      artifact_name:
+        description: Uploaded artifact name prefix (defaults to the repository name)
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ inputs.target }}
+    runs-on: ${{ inputs.target == 'macos' && 'macos-latest' || 'ubuntu-latest' }}
+    env:
+      TARGET: ${{ inputs.target }}
+      BUILD_ARGS: ${{ inputs.build_args }}
+      BASE_HREF: ${{ inputs.base_href }}
+      APP_NAME: ${{ inputs.app_name }}
+      ARTIFACT_NAME: ${{ inputs.artifact_name || github.event.repository.name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate target
+        run: |
+          set -eu
+          case "$TARGET" in
+            android|macos|linux|web) ;;
+            *) echo "Unknown target: $TARGET (want android, macos, linux or web)" >&2; exit 1 ;;
+          esac
+          if [ "$TARGET" = macos ] && [ -z "$APP_NAME" ]; then
+            echo "app_name is required when target is macos" >&2
+            exit 1
+          fi
+
+      # Linux desktop toolchain; the other runners already have what they need
+      - name: Install Linux build dependencies
+        if: inputs.target == 'linux'
+        run: |
+          set -eu
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - name: Install Flutter
+        uses: bbusse/github-workflows/.github/actions/install-flutter@dev
+        with:
+          version: ${{ inputs.flutter_version }}
+          precache_flags: --${{ inputs.target }}
+
+      - name: Analyze and test
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -eu
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      - name: Build
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -eu
+          case "$TARGET" in
+            android) sub="apk" ;;
+            macos)   sub="macos" ;;
+            linux)   sub="linux" ;;
+            web)     sub="web --base-href $BASE_HREF" ;;
+          esac
+          # shellcheck disable=SC2086 # deliberate word-split of flag lists
+          flutter build $sub --release $BUILD_ARGS
+
+      - name: Package artifact
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -eu
+          out="${RUNNER_TEMP}/flutter-artifact"
+          mkdir -p "$out"
+          case "$TARGET" in
+            android)
+              mv build/app/outputs/flutter-apk/app-release.apk \
+                "${out}/${ARTIFACT_NAME}.apk"
+              ;;
+            macos)
+              ditto -c -k --sequesterRsrc --keepParent \
+                "build/macos/Build/Products/Release/${APP_NAME}.app" \
+                "${out}/${ARTIFACT_NAME}-macos.zip"
+              ;;
+            linux)
+              bundle="$(echo build/linux/*/release/bundle)"
+              tar -cJf "${out}/${ARTIFACT_NAME}-linux.tar.xz" -C "$bundle" .
+              ;;
+            web)
+              tar -cJf "${out}/${ARTIFACT_NAME}-web.tar.xz" -C build/web .
+              ;;
+          esac
+          echo "ARTIFACT_DIR=${out}" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.ARTIFACT_NAME }}-${{ inputs.target }}
+          path: ${{ env.ARTIFACT_DIR }}/
+          if-no-files-found: error
