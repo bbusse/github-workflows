@@ -1,0 +1,39 @@
+---
+name: Install Flutter
+description: >-
+  Clone the Flutter SDK at a pinned ref, add it to PATH, and precache the
+  requested platforms
+
+inputs:
+  version:
+    description: Flutter ref to check out (channel name, tag, or version, e.g. stable or 3.47.2)
+    required: true
+  precache_flags:
+    description: Flags passed to 'flutter precache', e.g. "--android" or "--macos"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Clone Flutter SDK
+      shell: bash
+      env:
+        FLUTTER_VERSION: ${{ inputs.version }}
+        FLUTTER_HOME: ${{ runner.temp }}/flutter
+      run: |
+        set -eu
+        git clone --depth 1 -b "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$FLUTTER_HOME"
+        git config --global --add safe.directory "$FLUTTER_HOME"
+        echo "${FLUTTER_HOME}/bin" >> "$GITHUB_PATH"
+        echo "CI=true" >> "$GITHUB_ENV"
+
+    - name: Disable analytics and precache
+      shell: bash
+      env:
+        PRECACHE_FLAGS: ${{ inputs.precache_flags }}
+      run: |
+        set -eu
+        flutter --disable-analytics
+        # shellcheck disable=SC2086 # space-separated flags
+        flutter precache $PRECACHE_FLAGS
+        flutter doctor -v

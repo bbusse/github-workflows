@@ -1,0 +1,68 @@
+---
+name: Flutter Android APK Build
+
+# Builds a release APK using the Android SDK already on the runner
+#
+# Flutter itself is not preinstalled, so it is cloned at the pinned
+# version via install-flutter instead of a third-party action
+#
+# Signs with the default debug keystore unless the project configures
+# its own release signingConfig, fine for CI artifacts, not a store
+# upload
+
+on:
+  workflow_call:
+    inputs:
+      flutter_version:
+        description: Flutter ref to build with (channel name, tag, or version, e.g. stable or 3.47.2)
+        required: true
+        type: string
+      working_directory:
+        description: Directory (relative to the repository root) containing the Flutter project
+        required: false
+        default: '.'
+        type: string
+      build_args:
+        description: Extra arguments appended to 'flutter build apk --release'
+        required: false
+        default: ''
+        type: string
+      artifact_name:
+        description: Uploaded artifact name (defaults to the repository name)
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Flutter
+        uses: bbusse/github-workflows/.github/actions/install-flutter@dev
+        with:
+          version: ${{ inputs.flutter_version }}
+          precache_flags: --android
+
+      - name: Build APK
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          BUILD_ARGS: ${{ inputs.build_args }}
+        run: |
+          set -eu
+          flutter pub get
+          flutter analyze
+          flutter test
+          # shellcheck disable=SC2086 # space-separated extra flags
+          flutter build apk --release $BUILD_ARGS
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk
+          path: ${{ inputs.working_directory }}/build/app/outputs/flutter-apk/app-release.apk
