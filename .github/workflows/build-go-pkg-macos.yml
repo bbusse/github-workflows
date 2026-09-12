@@ -1,0 +1,75 @@
+---
+name: macOS Go Package Build
+
+# Pure Go (no cgo) cross-compiles to darwin cleanly from any host, but a
+# native macos-latest runner needs no cross setup at all, so this builds
+# natively rather than adding a GOOS=darwin leg to build-go-pkg-linux.yml.
+# Same shape as build-go-pkg-freebsd.yml, one arch (macos-latest is arm64).
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: Repository to check out and build from (defaults to the calling repository)
+        required: false
+        default: ''
+        type: string
+      ref:
+        description: Git ref (branch, tag, or SHA) to check out; defaults to the repository's default branch
+        required: false
+        default: ''
+        type: string
+      binary_name:
+        description: Go binary filename to build (defaults to artifact_name)
+        required: false
+        type: string
+        default: ''
+      artifact_name:
+        required: true
+        type: string
+      working_directory:
+        description: Directory (relative to the checked-out repository) containing the Go package to build
+        required: false
+        default: .
+        type: string
+      go_version:
+        description: Go toolchain version
+        required: false
+        default: 'stable'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    name: Build macOS arm64
+    runs-on: macos-latest
+    env:
+      ARTIFACT_SUFFIX: macos-arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository != '' && inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - name: Build
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          BINARY_NAME: ${{ inputs.binary_name }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          set -eu
+          bin="${BINARY_NAME:-$ARTIFACT_NAME}"
+          go build -o "$bin" .
+          tar -cJf "${ARTIFACT_NAME}-${ARTIFACT_SUFFIX}.tar.xz" "$bin"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}.tar.xz
+          path: ${{ inputs.working_directory }}/${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}.tar.xz
