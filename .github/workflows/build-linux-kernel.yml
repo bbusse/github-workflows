@@ -23,6 +23,11 @@ on:
         required: false
         default: linux/arm64
         type: string
+      kernel_ref:
+        description: Branch or tag of torvalds/linux to build (e.g. master, v7.1, v7.2-rc3)
+        required: false
+        default: master
+        type: string
     outputs:
       kernel_version:
         description: Kernel version reported by "make kernelversion" in the build container
@@ -56,6 +61,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONFIG: ${{ inputs.config }}
+          # image-builder reads KERNEL_REF from the environment and passes it
+          # to the Containerfile as a build arg
+          KERNEL_REF: ${{ inputs.kernel_ref }}
         run: |
           set -eu
           sudo ./image-builder/image-builder install
