@@ -102,6 +102,19 @@ jobs:
           paths: usr/src/linux/${{ steps.resolve-image.outputs.name }}.sha384
           platform: ${{ inputs.platform }}
 
+      # Boards ship the kernel's own dtb beside the Image, see the kernel
+      # Containerfile. Other flavours produce none
+      - name: Extract device tree from build container
+        if: ${{ inputs.config == 'pine64' || inputs.config == 'rockpro64' }}
+        uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
+        id: extract-dtb
+        with:
+          image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
+          paths: |
+            usr/src/linux/dtb-${{ inputs.config }}
+            usr/src/linux/dtb-${{ inputs.config }}.sha384
+          platform: ${{ inputs.platform }}
+
       - name: Extract kernel version from build container
         uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
         id: extract-version
@@ -129,10 +142,15 @@ jobs:
           IMAGE_DIR: ${{ steps.extract-image.outputs.destination }}
           CHECKSUM_DIR: ${{ steps.extract-checksum.outputs.destination }}
           IMAGE_NAME: ${{ steps.resolve-image.outputs.name }}
+          DTB_DIR: ${{ steps.extract-dtb.outputs.destination }}
+          CONFIG: ${{ inputs.config }}
         run: |
           set -eu
           mv "${IMAGE_DIR}/${IMAGE_NAME}" "$IMAGE_NAME"
           mv "${CHECKSUM_DIR}/${IMAGE_NAME}.sha384" "${IMAGE_NAME}.sha384"
+          if [ -n "${DTB_DIR}" ]; then
+            mv "${DTB_DIR}/dtb-${CONFIG}" "${DTB_DIR}/dtb-${CONFIG}.sha384" .
+          fi
 
       - name: Upload kernel image artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -141,3 +159,4 @@ jobs:
           path: |
             ${{ steps.resolve-image.outputs.name }}
             ${{ steps.resolve-image.outputs.name }}.sha384
+            dtb-${{ inputs.config }}*
