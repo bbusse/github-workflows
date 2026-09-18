@@ -14,6 +14,11 @@ on:
         required: false
         default: openwrt
         type: string
+      openwrt_branch:
+        description: Branch of the OpenWrt source fork to build (e.g., dev, ap120c)
+        required: false
+        default: dev
+        type: string
 
       use_arm_runner:
         description: Use ARM runner (ubuntu-24.04-arm) instead of ubuntu-latest
@@ -44,6 +49,7 @@ jobs:
       - name: Build
         env:
           FLAVOUR: ${{ inputs.flavour }}
+          OPENWRT_BRANCH: ${{ inputs.openwrt_branch }}
         run: |
           set -eu
           sudo ./image-builder/image-builder install
@@ -64,3 +70,16 @@ jobs:
         with:
           name: ${{ inputs.artifact_name }}-${{ inputs.flavour }}-packages
           path: openwrt/bin/targets/x86/64/packages/*
+
+      # Embedded targets (e.g. ath79 for the ALFA AP120C) put their
+      # sysupgrade/factory/initramfs images under bin/targets/<target>/<sub>.
+      - name: Upload firmware images artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}-${{ inputs.flavour }}-firmware
+          path: |
+            openwrt/bin/targets/*/*/openwrt-*.bin
+            openwrt/bin/targets/*/*/openwrt-*.manifest
+            openwrt/bin/targets/*/*/sha256sums
+            openwrt/bin/targets/*/*/config.buildinfo
+          if-no-files-found: ignore
