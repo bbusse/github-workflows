@@ -64,14 +64,14 @@ jobs:
           image-builder build openwrt "$FLAVOUR"
           ls -al
 
-      # NOTE: these paths are specific to the x86_64 target build_dir/bin
-      # layout. Adding another flavour will need its own path here, since
-      # OpenWrt's build_dir/bin tree layout differs per target/arch.
+      # VM disk images (x86/64 and armsr/armv8): combined EFI/BIOS disks
+      # and bare rootfs images, gzip-compressed, from bin/targets/<t>/<s>.
       - name: Upload disk image artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact_name }}-${{ inputs.flavour }}
-          path: openwrt/build_dir/target-x86_64_musl/linux-x86_64/tmp/openwrt-x86-64-*.img.gz
+          path: openwrt/bin/targets/*/*/openwrt-*.img.gz
+          if-no-files-found: ignore
 
       # Kernel modules (bin/targets/<target>/<sub>/packages, tied to this
       # build's kernel) and user-space packages (bin/packages/<arch>/<feed>),
