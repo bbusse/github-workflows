@@ -25,6 +25,13 @@ on:
         required: false
         default: false
         type: boolean
+    secrets:
+      OPENWRT_APK_PRIVATE_KEY:
+        description: >-
+          PEM private key used to sign packages and the image's apk keyring.
+          Optional; without it every build signs with a throwaway key and
+          packages only install on the image from the same build.
+        required: false
 permissions:
   contents: read
 
@@ -50,6 +57,7 @@ jobs:
         env:
           FLAVOUR: ${{ inputs.flavour }}
           OPENWRT_BRANCH: ${{ inputs.openwrt_branch }}
+          OPENWRT_APK_PRIVATE_KEY: ${{ secrets.OPENWRT_APK_PRIVATE_KEY }}
         run: |
           set -eu
           sudo ./image-builder/image-builder install
@@ -65,11 +73,17 @@ jobs:
           name: ${{ inputs.artifact_name }}-${{ inputs.flavour }}
           path: openwrt/build_dir/target-x86_64_musl/linux-x86_64/tmp/openwrt-x86-64-*.img.gz
 
+      # Kernel modules (bin/targets/<target>/<sub>/packages, tied to this
+      # build's kernel) and user-space packages (bin/packages/<arch>/<feed>),
+      # for every flavour. Signed with the build's apk key, see the
+      # OPENWRT_APK_PRIVATE_KEY secret.
       - name: Upload packages artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact_name }}-${{ inputs.flavour }}-packages
-          path: openwrt/bin/targets/x86/64/packages/*
+          path: |
+            openwrt/bin/targets/*/*/packages/*
+            openwrt/bin/packages/*/*/*
 
       # Embedded targets (e.g. ath79 for the ALFA AP120C) put their
       # sysupgrade/factory/initramfs images under bin/targets/<target>/<sub>.
