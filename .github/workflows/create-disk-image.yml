@@ -41,6 +41,14 @@ on:
         required: false
         default: ''
         type: string
+      overlays:
+        description: >-
+          Space separated git URLs of Portage overlays to register in the
+          image, the same list the stage4 was built with, so the board can
+          emerge the overlay's packages itself
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -127,6 +135,7 @@ jobs:
           VERIFY_FS: ${{ inputs.verify_fs && '1' || '0' }}
           VERIFY_FS_STAGES: ${{ inputs.verify_fs_stages && '1' || '0' }}
           FONT_URLS: ${{ inputs.font_urls }}
+          GENTOO_OVERLAYS: ${{ inputs.overlays }}
           TARGET: ${{ steps.resolve.outputs.target }}
           ARCH: ${{ inputs.arch }}
         run: |
