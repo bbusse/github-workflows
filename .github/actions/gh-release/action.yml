@@ -44,35 +44,37 @@ runs:
         TARGET: ${{ inputs.target_commitish }}
       run: |
         set -eu
-
         # Unquoted on purpose: FILES may be a glob such as ./dist/*
         # shellcheck disable=SC2206
         candidates=($FILES)
         files=()
         for f in "${candidates[@]}"; do
-          if [ -e "$f" ]; then files+=("$f"); fi
+            if [ -e "$f" ]; then files+=("$f"); fi
         done
         if [ "${#files[@]}" -eq 0 ]; then
-          echo "no files matched: $FILES" >&2
-          exit 1
+            echo "no files matched: $FILES" >&2
+            exit 1
         fi
-
-        if gh release view "$TAG" >/dev/null 2>&1; then
-          # Deleting a tag reverts its release to a draft, and draft releases
-          # are not served from releases/download, so publish explicitly.
-          edit=(--draft=false)
-          if [ -n "$TITLE" ]; then edit+=(--title "$TITLE"); fi
-          if [ "$PRERELEASE" = "true" ]; then
+        # Several jobs may publish into the same release at once, and the
+        # existence check can fail on a flaky API. So the release is created
+        # without files, which takes a second instead of an upload, and a
+        # create that loses to a sibling is fine as long as the release is
+        # there afterwards. Metadata and files follow the same way either way
+        if ! gh release view "$TAG" >/dev/null 2>&1; then
+            create=(--notes "")
+            if [ -n "$TITLE" ]; then create+=(--title "$TITLE"); fi
+            if [ "$PRERELEASE" = "true" ]; then create+=(--prerelease); fi
+            if [ -n "$TARGET" ]; then create+=(--target "$TARGET"); fi
+            gh release create "$TAG" "${create[@]}" || gh release view "$TAG" >/dev/null
+        fi
+        # Deleting a tag reverts its release to a draft, and draft releases
+        # are not served from releases/download, so publish explicitly
+        edit=(--draft=false)
+        if [ -n "$TITLE" ]; then edit+=(--title "$TITLE"); fi
+        if [ "$PRERELEASE" = "true" ]; then
             edit+=(--prerelease)
-          else
-            edit+=(--prerelease=false)
-          fi
-          gh release edit "$TAG" "${edit[@]}"
-          gh release upload "$TAG" "${files[@]}" --clobber
         else
-          create=(--notes "")
-          if [ -n "$TITLE" ]; then create+=(--title "$TITLE"); fi
-          if [ "$PRERELEASE" = "true" ]; then create+=(--prerelease); fi
-          if [ -n "$TARGET" ]; then create+=(--target "$TARGET"); fi
-          gh release create "$TAG" "${files[@]}" "${create[@]}"
+            edit+=(--prerelease=false)
         fi
+        gh release edit "$TAG" "${edit[@]}"
+        gh release upload "$TAG" "${files[@]}" --clobber
