@@ -72,19 +72,30 @@ jobs:
           echo "$GH_TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           podman push "ghcr.io/bbusse/linux-kernel-${CONFIG}:latest"
 
+      # Ask the build container what it produced: bzImage, Image or zImage
+      # depending on the arch, and a dtb for boards. It is still in local
+      # storage after the build and its entrypoint runs sh
       - name: Resolve kernel image file name
         id: resolve-image
         shell: bash
         env:
-          PLATFORM: ${{ inputs.platform }}
           CONFIG: ${{ inputs.config }}
         run: |
           set -eu
-          if [ "$PLATFORM" = "linux/amd64" ]; then
-            echo "name=bzImage-${CONFIG}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=Image-${CONFIG}" >> "$GITHUB_OUTPUT"
+          files="$(podman run --rm "ghcr.io/bbusse/linux-kernel-${CONFIG}:latest" \
+            sh -c 'cd /usr/src/linux && ls -1 bzImage-* Image-* zImage-* dtb-* 2>/dev/null || true')"
+          name="$(printf '%s\n' "$files" | awk -v c="$CONFIG" \
+            '$0 == "bzImage-" c || $0 == "Image-" c || $0 == "zImage-" c { print; exit }')"
+          if [ -z "$name" ]; then
+            echo "::error::no kernel image for ${CONFIG} in the build container" >&2
+            exit 1
           fi
+          dtb=false
+          if printf '%s\n' "$files" | awk -v c="$CONFIG" '$0 == "dtb-" c { f = 1 } END { exit !f }'; then
+            dtb=true
+          fi
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          echo "dtb=${dtb}" >> "$GITHUB_OUTPUT"
 
       - name: Extract kernel image from build container
         uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
@@ -102,10 +113,10 @@ jobs:
           paths: usr/src/linux/${{ steps.resolve-image.outputs.name }}.sha384
           platform: ${{ inputs.platform }}
 
-      # Boards ship the kernel's own dtb beside the Image, see the kernel
-      # Containerfile. Other flavours produce none
+      # Boards ship the kernel's own dtb beside the image, see the kernel
+      # Containerfiles. Other flavours produce none
       - name: Extract device tree from build container
-        if: ${{ inputs.config == 'pine64' || inputs.config == 'rockpro64' }}
+        if: ${{ steps.resolve-image.outputs.dtb == 'true' }}
         uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
         id: extract-dtb
         with:
