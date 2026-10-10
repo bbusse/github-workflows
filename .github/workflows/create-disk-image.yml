@@ -49,6 +49,14 @@ on:
         required: false
         default: ''
         type: string
+      exclude_images:
+        description: >-
+          Space separated slots to leave out of the image, any of them as
+          long as one remains, e.g. nomadbsd, or "gentoo-sway refind" for a
+          disk with NomadBSD alone
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -136,6 +144,7 @@ jobs:
           VERIFY_FS_STAGES: ${{ inputs.verify_fs_stages && '1' || '0' }}
           FONT_URLS: ${{ inputs.font_urls }}
           GENTOO_OVERLAYS: ${{ inputs.overlays }}
+          EXCLUDE_IMAGES: ${{ inputs.exclude_images }}
           TARGET: ${{ steps.resolve.outputs.target }}
           ARCH: ${{ inputs.arch }}
         run: |
