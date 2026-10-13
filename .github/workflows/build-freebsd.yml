@@ -5,7 +5,10 @@ on:
   workflow_call:
     inputs:
       release:
-        description: FreeBSD release version (e.g., 14.1, 15.0)
+        description: >-
+          FreeBSD release to build (e.g. 15.1). The build VM runs the same
+          release, so the build can use the VM's own compiler instead of
+          bootstrapping clang (image-builder refuses a mismatch).
         required: true
         type: string
       image_builder_ref:
@@ -13,55 +16,100 @@ on:
         required: false
         default: dev
         type: string
+      arches:
+        description: JSON list of target architectures to build (amd64, arm64)
+        required: false
+        default: '["amd64", "arm64"]'
+        type: string
+      mem:
+        description: Memory for the build VM in MB (the object tree lives in tmpfs)
+        required: false
+        default: 12288
+        type: number
 
 permissions:
   contents: read
 
 jobs:
   build-freebsd:
-    runs-on: ${{ matrix.arch == 'arm64' && 'macos-14' || 'macos-13' }}
+    # Every leg runs an x86_64 FreeBSD guest under KVM on a Linux runner
+    # and arm64 is cross-built inside it (TARGET=arm64). An aarch64 guest
+    # gets no KVM on any GitHub-hosted runner (macOS included) and runs
+    # under TCG, far too slow for a world build in the 6h job limit
+    runs-on: ubuntu-latest
     name: Build FreeBSD ${{ inputs.release }} (${{ matrix.arch }})
+    timeout-minutes: 340
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(inputs.arches) }}
     env:
       ARCH: ${{ matrix.arch }}
       RELEASE: ${{ inputs.release }}
       IMAGE_BUILDER_REF: ${{ inputs.image_builder_ref }}
     steps:
       - name: Build FreeBSD in VM
-        uses: vmactions/freebsd-vm@77ed28d336d03fe19a3f4f7266c1d2c4714dd79d # v1.5.2
         id: build
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        # Leaves time for the log collection below before the job limit
+        timeout-minutes: 300
         with:
           release: ${{ inputs.release }}
-          arch: ${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}
+          arch: x86_64
+          cpu: 4
+          mem: ${{ inputs.mem }}
           usesh: true
-          sync: sshfs
+          sync: rsync
           sync-time: true
           envs: 'ARCH RELEASE IMAGE_BUILDER_REF'
+          prepare: |
+            pkg install -y bash git sudo
           run: |
             set -eu
-            pkg install -y bash git sudo
+            mkdir -p "$GITHUB_WORKSPACE/logs"
+            log="$GITHUB_WORKSPACE/logs/build-freebsd-${RELEASE}-${ARCH}.log"
+
             cd /tmp
             git clone --depth 1 -b "$IMAGE_BUILDER_REF" https://github.com/opsboost/image-builder
             sudo ./image-builder/image-builder install
-            sudo image-builder build freebsd "$ARCH" "$RELEASE"
 
-            cp /tmp/freebsd-src/freebsd-*.tar.xz "$GITHUB_WORKSPACE/"
+            # Keep the full build output as a file too, so it can be
+            # pulled back even if this step fails or times out
+            rc=0
+            { sudo image-builder build freebsd "$ARCH" "$RELEASE" || rc=$?; echo "$rc" >/tmp/build.rc; } 2>&1 | tee "$log"
+            rc="$(cat /tmp/build.rc)"
+            if [ "$rc" -ne 0 ]; then
+              echo "image-builder failed with exit code $rc" >&2
+              exit "$rc"
+            fi
+
             cp "/tmp/freebsd-src/mini-memstick-${ARCH}.img" "$GITHUB_WORKSPACE/"
 
-      - name: Upload FreeBSD release archive
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: freebsd-${{ inputs.release }}-${{ matrix.arch }}-${{ github.run_number }}
-          path: freebsd-*.tar.xz
+      # The action only copies the workspace back when 'run' succeeds; a
+      # custom-shell step syncs it back afterwards in any case, which
+      # brings the build log home after a failure or timeout
+      - name: Fetch build log from VM
+        if: ${{ failure() || cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 15
+        shell: freebsd {0}
+        run: |
+          ls -la logs || true
+          if [ -f "logs/build-freebsd-${{ inputs.release }}-${{ matrix.arch }}.log" ]; then
+            tail -n 100 "logs/build-freebsd-${{ inputs.release }}-${{ matrix.arch }}.log"
+          fi
 
-      # Separate from the full release archive above: a static
-      # filename the downstream boot test can download directly,
-      # rather than untarring the whole release tree just to boot it
       - name: Upload FreeBSD mini-memstick image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: freebsd-${{ inputs.release }}-${{ matrix.arch }}-mini-memstick-${{ github.run_number }}
           path: mini-memstick-${{ matrix.arch }}.img
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: freebsd-${{ inputs.release }}-${{ matrix.arch }}-build-log-${{ github.run_number }}
+          path: logs/
+          if-no-files-found: ignore

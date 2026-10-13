@@ -4,15 +4,31 @@ name: Build NanoBSD
 on:
   workflow_call:
     inputs:
+      release:
+        description: >-
+          FreeBSD release to build NanoBSD from (e.g. 15.1). The build VM
+          runs the same release, so the build can use the VM's own compiler
+          instead of bootstrapping clang (image-builder refuses a mismatch).
+        required: false
+        default: '15.1'
+        type: string
       image_builder_ref:
         description: Branch/tag for OpsBoost/image-builder
         required: false
         default: dev
         type: string
-      mem:
-        description: Memory for VM in MB
+      arches:
+        description: >-
+          JSON list of target architectures to build (amd64, arm64). arm64
+          is cross-built, but NanoBSD's default MBR layout has no EFI boot
+          path, so an arm64 image doesn't boot as is.
         required: false
-        default: 4096
+        default: '["amd64", "arm64"]'
+        type: string
+      mem:
+        description: Memory for the build VM in MB
+        required: false
+        default: 12288
         type: number
 
 permissions:
@@ -20,42 +36,99 @@ permissions:
 
 jobs:
   build-nanobsd:
+    # Every leg runs an x86_64 FreeBSD guest under KVM on a Linux runner
+    # and arm64 is cross-built inside it. An aarch64 guest gets no KVM on
+    # any GitHub-hosted runner and runs under TCG, far too slow for a
+    # world build in the 6h job limit
     runs-on: ubuntu-latest
-    name: Build NanoBSD (${{ matrix.arch }})
+    name: Build NanoBSD ${{ inputs.release }} (${{ matrix.arch }})
+    timeout-minutes: 340
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(inputs.arches) }}
     env:
       ARCH: ${{ matrix.arch }}
+      RELEASE: ${{ inputs.release }}
       IMAGE_BUILDER_REF: ${{ inputs.image_builder_ref }}
     steps:
-      # arch is vmactions' own naming (x86_64/aarch64); the host
-      # runner stays x86_64 either way per vmactions' own guidance
-      - name: Build NanoBSD
-        uses: vmactions/freebsd-vm@77ed28d336d03fe19a3f4f7266c1d2c4714dd79d # v1.5.2
+      - name: Build NanoBSD in VM
         id: build
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        # Leaves time for the log collection below before the job limit
+        timeout-minutes: 300
         with:
-          arch: ${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}
+          release: ${{ inputs.release }}
+          arch: x86_64
+          cpu: 4
           mem: ${{ inputs.mem }}
           usesh: true
-          sync: sshfs
+          sync: rsync
           sync-time: true
-          envs: 'ARCH IMAGE_BUILDER_REF'
+          envs: 'ARCH RELEASE IMAGE_BUILDER_REF'
+          prepare: |
+            pkg install -y bash git sudo
           run: |
             set -eu
-            pkg install -y bash git sudo
+            mkdir -p "$GITHUB_WORKSPACE/logs"
+            log="$GITHUB_WORKSPACE/logs/build-nanobsd-${RELEASE}-${ARCH}.log"
 
-            # Build outside the sshfs-shared workspace: buildworld/
-            # installworld against a live network mount trips FreeBSD's
-            # mtime-based "tried to rebuild during install" safety net
+            # Build outside the synced workspace
             cd /tmp
-            git clone -b "$IMAGE_BUILDER_REF" --depth 1 https://github.com/opsboost/image-builder
+            git clone --depth 1 -b "$IMAGE_BUILDER_REF" https://github.com/opsboost/image-builder
             sudo ./image-builder/image-builder install
-            sudo image-builder build nanobsd "$ARCH"
+
+            rc=0
+            { sudo image-builder build nanobsd "$ARCH" "$RELEASE" || rc=$?; echo "$rc" >/tmp/build.rc; } 2>&1 | tee "$log"
+            rc="$(cat /tmp/build.rc)"
+
+            # nanobsd.sh writes each stage's output to its own log file
+            # under NANO_OBJ (_.bw buildworld, _.bk buildkernel, ...);
+            # keep the plain-file logs, not the world tree or images
+            for f in /usr/obj/nanobsd.*/_.*; do
+              case "$f" in
+              *_.disk.* | *.image | *.part) continue ;;
+              esac
+              if [ -f "$f" ]; then
+                cp "$f" "$GITHUB_WORKSPACE/logs/"
+              fi
+            done
+
+            if [ "$rc" -ne 0 ]; then
+              echo "image-builder failed with exit code $rc" >&2
+              exit "$rc"
+            fi
 
             cp /usr/obj/nanobsd.full/_.disk.full \
                 "$GITHUB_WORKSPACE/nanobsd-${ARCH}-full.img"
+
+      # The action only copies the workspace back when 'run' succeeds; a
+      # custom-shell step syncs it back afterwards in any case. After a
+      # step timeout the build script never reached its own copy of
+      # nanobsd.sh's per-stage logs, so collect them here as well
+      - name: Fetch build logs from VM
+        if: ${{ failure() || cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 15
+        shell: freebsd {0}
+        run: |
+          mkdir -p logs
+          ls -la /usr/obj/nanobsd.*/ >logs/nanobsd-obj-listing.txt 2>&1 || true
+          for f in /usr/obj/nanobsd.*/_.*; do
+            case "$f" in
+            *_.disk.* | *.image | *.part) continue ;;
+            esac
+            if [ -f "$f" ]; then
+              cp "$f" logs/
+            fi
+          done
+          for f in logs/_.bw logs/_.bk logs/_.iw logs/_.di; do
+            if [ -f "$f" ]; then
+              echo "=== tail -n 100 $f ==="
+              tail -n 100 "$f"
+            fi
+          done
+          ls -la logs
 
       # A static filename inside the artifact keeps the downstream boot
       # test's download step simple; the artifact name itself (which
@@ -65,3 +138,12 @@ jobs:
         with:
           name: nanobsd-${{ matrix.arch }}-full-${{ github.run_number }}
           path: nanobsd-${{ matrix.arch }}-full.img
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nanobsd-${{ matrix.arch }}-build-logs-${{ github.run_number }}
+          path: logs/
+          if-no-files-found: ignore

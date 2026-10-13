@@ -94,6 +94,25 @@ on:
         required: false
         default: ''
         type: string
+      disk_image:
+        description: >-
+          File inside the downloaded artifact (relative to working_directory)
+          to export as DISK_IMAGE. Defaults to <target>-<arch>.raw for
+          create-disk-image.yml's disk-image-<target>-<arch> artifacts; for any
+          other artifact DISK_IMAGE is left unset unless this is given, so the
+          suite's own default applies.
+        required: false
+        default: ''
+        type: string
+      enable_kvm:
+        description: >-
+          Make /dev/kvm usable by the runner user (a udev rule) when the runner
+          has it, so qemu-boot-style tests can use KVM instead of TCG. GitHub's
+          x86_64 Ubuntu runners have /dev/kvm, but root:kvm 0660 by default.
+          A no-op where there is no /dev/kvm.
+        required: false
+        default: false
+        type: boolean
       use_arm_runner:
         description: Use ARM runner (ubuntu-24.04-arm) instead of ubuntu-latest - needed for qemu-boot-style arm64 tests to avoid unreliable cross-arch TCG emulation on an x86_64 host
         required: false
@@ -182,6 +201,23 @@ jobs:
               ovmf
           fi
 
+      # Same rule as GitHub's announcement of hardware acceleration on
+      # standard Linux runners; the udev trigger applies it to the existing node
+      - name: Enable KVM
+        if: ${{ inputs.enable_kvm }}
+        run: |
+          set -eu
+          if [ ! -e /dev/kvm ]; then
+            echo "::notice::No /dev/kvm on this $(uname -m) runner - qemu tests fall back to TCG"
+            exit 0
+          fi
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo udevadm settle
+          ls -l /dev/kvm
+
       - name: Download artifact
         if: ${{ inputs.download_artifact_name != '' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -189,19 +225,38 @@ jobs:
           name: ${{ inputs.download_artifact_name }}
           path: ${{ inputs.working_directory }}
 
-      # Artifact name follows disk-image-<target>-<arch>, and the file inside
-      # it is <target>-<arch>.raw (see create-disk-image.yml's upload-artifact
-      # step) - derive DISK_IMAGE so qemu-boot-style tests find the right image
-      # without hardcoding a target here.
+      # create-disk-image.yml names its artifacts disk-image-<target>-<arch>
+      # with <target>-<arch>.raw inside, so DISK_IMAGE can be derived for
+      # those. Other producers (e.g. build-freebsd.yml's
+      # freebsd-<release>-<arch>-mini-memstick-<run> holding
+      # mini-memstick-<arch>.img) name things differently: there, export
+      # nothing unless disk_image says what to use, so the suite's own default
+      # stays in effect instead of being overridden with a file that does not
+      # exist.
       - name: Derive DISK_IMAGE from downloaded artifact
         if: ${{ inputs.download_artifact_name != '' }}
         working-directory: ${{ inputs.working_directory }}
         env:
           ARTIFACT_NAME: ${{ inputs.download_artifact_name }}
+          DISK_IMAGE_INPUT: ${{ inputs.disk_image }}
         run: |
           set -eu
           ls -la
-          echo "DISK_IMAGE=${ARTIFACT_NAME#disk-image-}.raw" >> "$GITHUB_ENV"
+          disk_image="$DISK_IMAGE_INPUT"
+          if [ -z "$disk_image" ]; then
+            case "$ARTIFACT_NAME" in
+            disk-image-*) disk_image="${ARTIFACT_NAME#disk-image-}.raw" ;;
+            esac
+          fi
+          if [ -z "$disk_image" ]; then
+            echo "Leaving DISK_IMAGE to the test suite's default"
+            exit 0
+          fi
+          if [ ! -f "$disk_image" ]; then
+            echo "::error::Artifact $ARTIFACT_NAME has no $disk_image"
+            exit 1
+          fi
+          echo "DISK_IMAGE=$disk_image" >> "$GITHUB_ENV"
 
       - name: Install bash_unit
         env:
