@@ -118,6 +118,14 @@ on:
         required: false
         default: false
         type: boolean
+      install_podman:
+        description: >-
+          Install a pinned current podman over the runner's before anything
+          builds. The runner images carry podman 4.9 or 5.x depending on the
+          image version, and 4.9 cannot parse RUN heredocs in a Containerfile
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -131,6 +139,10 @@ jobs:
       TERM: xterm-256color
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install current podman
+        if: ${{ inputs.install_podman }}
+        uses: bbusse/github-workflows/.github/actions/install-podman@dev
 
       - name: Build container image
         if: ${{ inputs.build_container }}
