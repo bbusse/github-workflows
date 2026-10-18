@@ -2,7 +2,6 @@
 name: FreeBSD Rust Package Build
 
 on:
-  workflow_dispatch:
   workflow_call:
     inputs:
       artifact_name:
@@ -34,7 +33,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: FreeBSD Rust Build
-        uses: vmactions/freebsd-vm@77ed28d336d03fe19a3f4f7266c1d2c4714dd79d # v1.5.2
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
         id: build
         with:
           usesh: true

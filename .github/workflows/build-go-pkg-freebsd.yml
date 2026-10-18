@@ -1,12 +1,20 @@
 ---
 name: FreeBSD Package Build
 
+# Pure Go cross-compiles to FreeBSD from Linux, so no FreeBSD VM is needed.
+# A package that needs cgo cannot be built this way
+
 on:
-  workflow_dispatch:
   workflow_call:
     inputs:
       artifact_name:
+        description: Binary name, and prefix of the uploaded <artifact_name>-freebsd-amd64.tar.xz
         required: true
+        type: string
+      go_version:
+        description: Go toolchain version
+        required: false
+        default: stable
         type: string
 
 permissions:
@@ -16,25 +24,24 @@ jobs:
   build-freebsd:
     runs-on: ubuntu-latest
     name: FreeBSD Build
-    env:
-      ARTIFACT_NAME: ${{ inputs.artifact_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: FreeBSD Build
-        uses: vmactions/freebsd-vm@77ed28d336d03fe19a3f4f7266c1d2c4714dd79d # v1.5.2
-        id: build
-        with:
-          usesh: true
-          prepare: |
-            pkg install -y curl go
 
-          envs: 'ARTIFACT_NAME'
-          run: |
-            set -eu
-            freebsd-version
-            go build -o "$ARTIFACT_NAME"
-            tar -cJvf "${ARTIFACT_NAME}-freebsd-amd64.tar.xz" "$ARTIFACT_NAME"
-            ls -lah
+      - uses: bbusse/github-workflows/.github/actions/setup-go@dev
+        with:
+          version: ${{ inputs.go_version }}
+
+      - name: Build
+        env:
+          GOOS: freebsd
+          GOARCH: amd64
+          CGO_ENABLED: 0
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          set -eu
+          go build -o "$ARTIFACT_NAME" .
+          file "$ARTIFACT_NAME"
+          tar -cJf "${ARTIFACT_NAME}-freebsd-amd64.tar.xz" "$ARTIFACT_NAME"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

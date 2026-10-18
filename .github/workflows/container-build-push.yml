@@ -102,7 +102,7 @@ jobs:
           USE_ARM_RUNNER: ${{ inputs.use_arm_runner }}
         run: |
           set -eu
-          list="$(printf '%s' "$IMAGE_PLATFORMS" | tr -d '[:space:]' | tr ',' '\n' | grep -v '^$')"
+          list="$(printf '%s' "$IMAGE_PLATFORMS" | tr -d '[:space:]' | tr ',' '\n' | awk 'NF')"
           count="$(printf '%s\n' "$list" | wc -l | tr -d ' ')"
 
           entries=""
@@ -252,7 +252,9 @@ jobs:
           scan_ref: ${{ steps.meta.outputs.repository }}:${{ steps.meta.outputs.primary_tag }}
 
       - name: Image digest
-        run: echo "${{ steps.container-build-push.outputs.digest || steps.container-build-digest.outputs.digest }}"
+        env:
+          DIGEST: ${{ steps.container-build-push.outputs.digest || steps.container-build-digest.outputs.digest }}
+        run: echo "$DIGEST"
 
   merge:
     name: Assemble manifest list
@@ -262,9 +264,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Docker buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
+      # imagetools only talks to the registry, the runner's buildx plugin
+      # does that without a builder instance
       - name: Download digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:

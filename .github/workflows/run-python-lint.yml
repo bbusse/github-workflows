@@ -20,7 +20,9 @@ on:
         default: .
         type: string
       python_version:
-        description: Python version to set up
+        description: >-
+          Deprecated no-op, kept so existing callers keep validating. flake8
+          runs on the runner's python3
         required: false
         default: '3.12'
         type: string
@@ -60,19 +62,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: ${{ inputs.python_version }}
-
       - name: Install flake8
         env:
           PLUGINS: ${{ inputs.plugins }}
         run: |
           set -eu
+          python3 -m venv "$RUNNER_TEMP/flake8"
           # shellcheck disable=SC2086 # a space-separated list of pip specs
-          python -m pip install --disable-pip-version-check flake8 $PLUGINS
-          flake8 --version
+          "$RUNNER_TEMP/flake8/bin/pip" install --disable-pip-version-check flake8 $PLUGINS
+          echo "$RUNNER_TEMP/flake8/bin" >>"$GITHUB_PATH"
+          "$RUNNER_TEMP/flake8/bin/flake8" --version
 
       - name: Lint
         working-directory: ${{ inputs.working_directory }}

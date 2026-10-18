@@ -1,0 +1,27 @@
+---
+name: Install image-builder
+description: >-
+  Fetch OpsBoost/image-builder at a ref and install it to /usr/local/bin.
+
+inputs:
+  ref:
+    description: Branch, tag or commit SHA of OpsBoost/image-builder
+    required: false
+    default: dev
+
+runs:
+  using: composite
+  steps:
+    # Fetching the ref rather than cloning a branch lets ref be a SHA
+    - name: Install image-builder
+      shell: bash
+      env:
+        REF: ${{ inputs.ref }}
+        DIR: ${{ runner.temp }}/image-builder
+      run: |
+        set -euo pipefail
+        git init -q "$DIR"
+        git -C "$DIR" fetch -q --depth 1 https://github.com/OpsBoost/image-builder.git "$REF"
+        git -C "$DIR" checkout -q FETCH_HEAD
+        echo "image-builder $REF at $(git -C "$DIR" rev-parse --short HEAD)"
+        sudo "$DIR/image-builder" install

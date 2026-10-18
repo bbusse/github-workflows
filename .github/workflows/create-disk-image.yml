@@ -57,6 +57,13 @@ on:
         required: false
         default: ''
         type: string
+      include_images:
+        description: >-
+          Space separated optional slots to add to the image, e.g. freebsd.
+          image-builder refuses one the target does not offer
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -96,12 +103,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Checkout image-builder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: OpsBoost/image-builder
-          ref: dev
-          path: image-builder
+      - name: Install image-builder
+        uses: bbusse/github-workflows/.github/actions/install-image-builder@dev
 
       # The stage4 that image-builder would otherwise fetch comes from the
       # "latest" release tag, which a separate workflow publishes. Fetching
@@ -145,11 +148,11 @@ jobs:
           FONT_URLS: ${{ inputs.font_urls }}
           GENTOO_OVERLAYS: ${{ inputs.overlays }}
           EXCLUDE_IMAGES: ${{ inputs.exclude_images }}
+          INCLUDE_IMAGES: ${{ inputs.include_images }}
           TARGET: ${{ steps.resolve.outputs.target }}
           ARCH: ${{ inputs.arch }}
         run: |
           set -eu
-          sudo ./image-builder/image-builder install
           image-builder create "$TARGET" "$ARCH"
 
       - name: Upload artifact

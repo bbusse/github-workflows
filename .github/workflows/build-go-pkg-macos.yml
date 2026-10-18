@@ -53,9 +53,9 @@ jobs:
           repository: ${{ inputs.repository != '' && inputs.repository || github.repository }}
           ref: ${{ inputs.ref }}
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: bbusse/github-workflows/.github/actions/setup-go@dev
         with:
-          go-version: ${{ inputs.go_version }}
+          version: ${{ inputs.go_version }}
 
       - name: Build
         working-directory: ${{ inputs.working_directory }}

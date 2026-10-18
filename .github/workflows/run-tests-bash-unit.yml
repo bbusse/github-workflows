@@ -213,22 +213,9 @@ jobs:
               ovmf
           fi
 
-      # Same rule as GitHub's announcement of hardware acceleration on
-      # standard Linux runners; the udev trigger applies it to the existing node
       - name: Enable KVM
         if: ${{ inputs.enable_kvm }}
-        run: |
-          set -eu
-          if [ ! -e /dev/kvm ]; then
-            echo "::notice::No /dev/kvm on this $(uname -m) runner - qemu tests fall back to TCG"
-            exit 0
-          fi
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          sudo udevadm settle
-          ls -l /dev/kvm
+        uses: bbusse/github-workflows/.github/actions/enable-kvm@dev
 
       - name: Download artifact
         if: ${{ inputs.download_artifact_name != '' }}
@@ -240,8 +227,8 @@ jobs:
       # create-disk-image.yml names its artifacts disk-image-<target>-<arch>
       # with <target>-<arch>.raw inside, so DISK_IMAGE can be derived for
       # those. Other producers (e.g. build-freebsd.yml's
-      # freebsd-<release>-<arch>-mini-memstick-<run> holding
-      # mini-memstick-<arch>.img) name things differently: there, export
+      # freebsd-<release>-<arch>-<run> holding
+      # freebsd-<arch>.img) name things differently: there, export
       # nothing unless disk_image says what to use, so the suite's own default
       # stays in effect instead of being overridden with a file that does not
       # exist.

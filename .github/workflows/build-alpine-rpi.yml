@@ -36,12 +36,10 @@ jobs:
       - name: Aggressive cleanup
         uses: bbusse/github-workflows/.github/actions/aggressive-cleanup@dev
 
-      - name: Checkout image-builder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install image-builder
+        uses: bbusse/github-workflows/.github/actions/install-image-builder@dev
         with:
-          repository: OpsBoost/image-builder
           ref: ${{ inputs.image_builder_ref }}
-          path: image-builder
 
       - name: Build
         env:
@@ -49,7 +47,6 @@ jobs:
           FLAVOUR: ${{ inputs.flavour }}
         run: |
           set -eu
-          sudo ./image-builder/image-builder install
           sudo -E image-builder create "alpine-${FLAVOUR}"
 
       - name: Upload artifact

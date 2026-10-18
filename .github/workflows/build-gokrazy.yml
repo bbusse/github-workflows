@@ -24,9 +24,7 @@ jobs:
           repository: gokrazy/gokrazy
           path: gokrazy
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: 'stable'
+      - uses: bbusse/github-workflows/.github/actions/setup-go@dev
 
       - name: Ensure all files were formatted as per gofmt
         working-directory: gokrazy
@@ -40,24 +38,29 @@ jobs:
           fi
 
       - name: install gok CLI
+        working-directory: gokrazy
         run: |
-          cd gokrazy
+          set -eu
           GOPROXY=direct go install github.com/gokrazy/tools/cmd/gok@main
 
       - name: install qemu
-        run: sudo apt update && sudo apt-get install qemu-system-x86
+        run: |
+          set -eu
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86
 
       - name: run tests
+        working-directory: gokrazy
         run: |
-          cd gokrazy
+          set -eu
           go test -v ./...
 
       - name: generate gokrazy disk image
         env:
           IMAGE_NAME: ${{ inputs.image_name }}
+        working-directory: gokrazy
         run: |
           set -eu
-          cd gokrazy
           GOPATH="$(go env GOPATH)"
           export PATH="${PATH}:${GOPATH}/bin"
           gok new

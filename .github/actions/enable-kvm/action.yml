@@ -1,0 +1,26 @@
+---
+name: Enable KVM
+description: >-
+  Make /dev/kvm usable by the runner user, so qemu can use KVM instead of TCG.
+  GitHub's x86_64 Ubuntu runners have /dev/kvm, but root:kvm 0660 by default.
+  A no-op where there is no /dev/kvm.
+
+runs:
+  using: composite
+  steps:
+    # Same rule as GitHub's announcement of hardware acceleration on
+    # standard Linux runners; the udev trigger applies it to the existing node
+    - name: Enable KVM
+      shell: bash
+      run: |
+        set -eu
+        if [ ! -e /dev/kvm ]; then
+          echo "::notice::No /dev/kvm on this $(uname -m) runner - qemu falls back to TCG"
+          exit 0
+        fi
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+          | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+        sudo udevadm settle
+        ls -l /dev/kvm

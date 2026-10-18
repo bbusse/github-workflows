@@ -1,5 +1,5 @@
 ---
-name: Build Linux Kernel
+name: Build coreboot
 
 on:
   workflow_call:
@@ -16,7 +16,6 @@ on:
         type: boolean
 permissions:
   contents: read
-  packages: write
 
 jobs:
   build-coreboot:
@@ -29,18 +28,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Checkout image-builder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: 'OpsBoost/image-builder'
-          ref: 'dev'
-          path: 'image-builder'
+      - name: Install image-builder
+        uses: bbusse/github-workflows/.github/actions/install-image-builder@dev
 
       - name: Build coreboot
         env:
           CONFIG: ${{ inputs.config }}
         run: |
           set -eu
-          sudo ./image-builder/image-builder install
           BUILD_USE_CONTAINER=1 \
             image-builder build coreboot "$CONFIG"

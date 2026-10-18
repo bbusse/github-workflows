@@ -47,12 +47,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Checkout image-builder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: OpsBoost/image-builder
-          ref: dev
-          path: image-builder
+      - name: Install image-builder
+        uses: bbusse/github-workflows/.github/actions/install-image-builder@dev
 
       - name: Build
         env:
@@ -63,7 +59,6 @@ jobs:
           ARCH: ${{ inputs.arch }}
         run: |
           set -eu
-          sudo ./image-builder/image-builder install
           image-builder build u-root "$ARCH"
           echo "$GHCR_TOKEN" | podman login "$REGISTRY" -u "$GITHUB_ACTOR" --password-stdin
           podman tag "$IMAGE_LOCAL" "$IMAGE_REMOTE"

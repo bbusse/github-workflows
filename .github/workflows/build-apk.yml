@@ -212,76 +212,24 @@ jobs:
           name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-${{ matrix.arch }}
           path: ./out/*.apk
 
-  # Building from source: abuild really compiles, so each arch needs its own
-  # hardware and its own mechanism. On x64 a job-level container works; on an
-  # arm64 runner it can't, because GitHub doesn't support JS actions
-  # (checkout, up/download-artifact) inside a container there - so that leg
-  # runs the Alpine image via a manual `podman run` for the abuild step only,
-  # with checkout and upload happening on the bare runner.
-  build-apk-amd64-from-source:
-    name: Build APK amd64 from source
+  # Building from source: abuild really compiles, so each arch builds on its
+  # own native runner. GitHub runs no JS actions (checkout, upload-artifact)
+  # inside a job container on arm64, so checkout and upload stay on the bare
+  # runner and only abuild runs in the Alpine image, through podman
+  build-apk-from-source:
+    name: Build APK ${{ matrix.arch }} from source
     if: ${{ inputs.build_from_source }}
-    runs-on: ubuntu-latest
-    container:
-      image: ${{ inputs.apk_builder_image }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: ./work
-
-      - name: Configure signing key
-        uses: bbusse/github-workflows/.github/actions/abuild-sign@dev
-        with:
-          key_name: ${{ inputs.key_name }}
-          abuild_private_key: ${{ secrets.ABUILD_PRIVATE_KEY }}
-          packager: ${{ env.PACKAGER }}
-
-      # One packaging path for both cases: a caller that computes a version
-      # (releases do) has it win over the APKBUILD's own pkgver, so building
-      # from source yields the same asset names the synthesized APKBUILD does.
-      # This suits an APKBUILD that builds the checkout it ships with; one that
-      # fetches a versioned source= tarball would now look for a release that
-      # does not exist, so such packages should not be passed a version
-      - name: Override pkgver
-        if: ${{ inputs.version != '' }}
-        working-directory: ./work/${{ inputs.working_directory }}
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -eu
-          pkgver="$(printf '%s' "$VERSION" | awk '{ sub(/^[vV]/, ""); gsub(/-/, "_"); print }')"
-          awk -v v="$pkgver" '
-              /^pkgver=/ && !done { print "pkgver=" v; done = 1; next }
-              { print }
-          ' APKBUILD > APKBUILD.new
-          mv APKBUILD.new APKBUILD
-          grep '^pkgver=' APKBUILD
-
-      - name: Build package
-        working-directory: ./work/${{ inputs.working_directory }}
-        run: |
-          set -eu
-          apk update
-          chown -R builder:abuild "$GITHUB_WORKSPACE/work"
-          sudo -u builder -H sh -c 'abuild checksum && abuild -r'
-
-      - name: Stage package
-        uses: bbusse/github-workflows/.github/actions/stage-apk@dev
-        with:
-          packages_dir: /home/builder/packages
-          alpine_arch: x86_64
-
-      - name: Upload apk artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-amd64
-          path: ./out/*.apk
-
-  build-apk-arm64-from-source:
-    name: Build APK arm64 from source
-    if: ${{ inputs.build_from_source }}
-    runs-on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            alpine_arch: x86_64
+            runner: ubuntu-latest
+          - arch: arm64
+            alpine_arch: aarch64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -314,9 +262,9 @@ jobs:
           awk -v v="$pkgver" '
               /^pkgver=/ && !done { print "pkgver=" v; done = 1; next }
               { print }
-          ' APKBUILD > APKBUILD.new
+          ' APKBUILD >APKBUILD.new
           mv APKBUILD.new APKBUILD
-          grep '^pkgver=' APKBUILD
+          awk '/^pkgver=/' APKBUILD
 
       - name: Build package
         env:
@@ -346,10 +294,10 @@ jobs:
         uses: bbusse/github-workflows/.github/actions/stage-apk@dev
         with:
           packages_dir: ./packages
-          alpine_arch: aarch64
+          alpine_arch: ${{ matrix.alpine_arch }}
 
       - name: Upload apk artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-arm64
+          name: ${{ inputs.artifact_name || github.event.repository.name }}-apk-${{ matrix.arch }}
           path: ./out/*.apk

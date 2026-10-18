@@ -1,0 +1,44 @@
+---
+name: Select a Go toolchain
+description: >-
+  Point GOTOOLCHAIN at a Go release so the runner's preinstalled go fetches
+  that toolchain and checks it against the Go checksum database.
+
+inputs:
+  version:
+    description: Go version, as stable, a minor such as 1.25 for its latest patch, or an exact release such as 1.25.3
+    required: false
+    default: stable
+
+runs:
+  using: composite
+  steps:
+    - name: Select Go toolchain
+      shell: bash
+      env:
+        GO_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        case "$GO_VERSION" in
+        stable) version="$(curl -fsSL 'https://go.dev/VERSION?m=text' | awk 'NR == 1')" ;;
+        go[0-9]*.*.* | [0-9]*.*.*) version="go${GO_VERSION#go}" ;;
+        *)
+            version="$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' |
+                jq -r --arg p "go${GO_VERSION#go}." 'first(.[] | select(.stable and (.version | startswith($p))) | .version) // empty')"
+            ;;
+        esac
+        if [ -z "$version" ]; then
+            echo "::error::no Go release matches '$GO_VERSION'" >&2
+            exit 1
+        fi
+        command -v go >/dev/null || {
+            echo "::error::no preinstalled go to fetch $version with" >&2
+            exit 1
+        }
+        export GOTOOLCHAIN="$version"
+        if [ "$(go env GOVERSION)" != "$version" ]; then
+            echo "::error::the runner's go is too old to switch to $version" >&2
+            exit 1
+        fi
+        echo "GOTOOLCHAIN=$version" >>"$GITHUB_ENV"
+        go version

@@ -55,12 +55,9 @@ jobs:
           repository: ${{ inputs.repository != '' && inputs.repository || github.repository }}
           ref: ${{ inputs.ref }}
 
-      # go_version selects a specific toolchain, which the runner's
-      # preinstalled Go can't do - one of the few cases where an action earns
-      # its place over a plain run: step.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: bbusse/github-workflows/.github/actions/setup-go@dev
         with:
-          go-version: ${{ inputs.go_version }}
+          version: ${{ inputs.go_version }}
 
       - name: Build
         working-directory: ${{ inputs.working_directory }}

@@ -31,6 +31,7 @@ on:
   workflow_call:
     inputs:
       version_branch:
+        description: Read the current version from this branch instead of the checked out ref
         required: false
         default: ''
         type: string
@@ -40,19 +41,24 @@ on:
         default: ''
         type: string
       always_release:
+        description: Skip the tag scheme and version as <branch>_<short-sha>_<run-number>
         required: false
         default: false
         type: boolean
       version_override:
+        description: Use this exact version instead of computing one
         required: false
         default: ''
         type: string
     outputs:
       version:
+        description: Version being released
         value: ${{ jobs.compute.outputs.version }}
       version_to_write:
+        description: Value to store back as the current version
         value: ${{ jobs.compute.outputs.version_to_write }}
       prerelease:
+        description: Whether the release is a prerelease (rc)
         value: ${{ jobs.compute.outputs.prerelease }}
       cargo_version:
         description: version translated into a Cargo.toml-legal semver string (e.g. v1-rc2 -> 1.0.0-rc2). Empty when not derivable (always_release mode, or a version_override that doesn't follow the vN[-rcN] convention).
@@ -90,137 +96,113 @@ jobs:
           set -eu
 
           to_cargo_version() {
-            local v="$1"
-            if [[ "$v" =~ ^v([0-9]+)-rc([0-9]+)$ ]]; then
-              echo "${BASH_REMATCH[1]}.0.0-rc${BASH_REMATCH[2]}"
-            elif [[ "$v" =~ ^v([0-9]+)$ ]]; then
-              echo "${BASH_REMATCH[1]}.0.0"
-            fi
+              local v="$1"
+              if [[ "$v" =~ ^v([0-9]+)-rc([0-9]+)$ ]]; then
+                  echo "${BASH_REMATCH[1]}.0.0-rc${BASH_REMATCH[2]}"
+              elif [[ "$v" =~ ^v([0-9]+)$ ]]; then
+                  echo "${BASH_REMATCH[1]}.0.0"
+              fi
           }
 
           if [[ "${ALWAYS_RELEASE}" == "true" ]]; then
-            short_sha="$(git rev-parse --short HEAD)"
-            version="${GITHUB_REF_NAME////-}_${short_sha}_${GITHUB_RUN_NUMBER}"
-            {
-              echo "version=${version}"
-              echo "prerelease=false"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
+              short_sha="$(git rev-parse --short HEAD)"
+              version="${GITHUB_REF_NAME////-}_${short_sha}_${GITHUB_RUN_NUMBER}"
+              {
+                  echo "version=${version}"
+                  echo "prerelease=false"
+              } >>"$GITHUB_OUTPUT"
+              exit 0
           fi
+
+          case "${GITHUB_REF_NAME}" in
+          rc-*) prerelease="true" ;;
+          release-*) prerelease="false" ;;
+          *)
+              echo "Unexpected tag: ${GITHUB_REF_NAME} (expected rc-* or release-*)" >&2
+              exit 1
+              ;;
+          esac
 
           if [[ -n "${VERSION_OVERRIDE}" ]]; then
-            case "${GITHUB_REF_NAME}" in
-              rc-*)      prerelease="true" ;;
-              release-*) prerelease="false" ;;
-              *) echo "Unexpected tag: ${GITHUB_REF_NAME} (expected rc-* or release-*)" >&2; exit 1 ;;
-            esac
-            {
-              echo "version=${VERSION_OVERRIDE}"
-              echo "version_to_write=${VERSION_OVERRIDE}"
-              echo "prerelease=${prerelease}"
-              echo "cargo_version=$(to_cargo_version "${VERSION_OVERRIDE}")"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
+              {
+                  echo "version=${VERSION_OVERRIDE}"
+                  echo "version_to_write=${VERSION_OVERRIDE}"
+                  echo "prerelease=${prerelease}"
+                  echo "cargo_version=$(to_cargo_version "${VERSION_OVERRIDE}")"
+              } >>"$GITHUB_OUTPUT"
+              exit 0
           fi
 
-          tag="${GITHUB_REF_NAME}"
-
+          # Cargo mode translates N.0.0[-rcM] into vN[-rcM], so both modes
+          # share the parsing below. An unparseable Cargo version starts
+          # from v0, an unparseable VERSION file is an error
           if [[ -n "${CARGO_TOML_PATH}" ]]; then
-            if [[ -n "${VERSION_BRANCH}" ]]; then
+              if [[ -n "${VERSION_BRANCH}" ]]; then
+                  git fetch origin "${VERSION_BRANCH}"
+                  cargo_current="$(git show "origin/${VERSION_BRANCH}:${CARGO_TOML_PATH}" 2>/dev/null | awk -F'"' '/^version[[:space:]]*=/{print $2; exit}')"
+              else
+                  cargo_current="$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' "${CARGO_TOML_PATH}")"
+              fi
+              if [[ "$cargo_current" =~ ^([0-9]+)\.0\.0-rc([0-9]+)$ ]]; then
+                  current="v${BASH_REMATCH[1]}-rc${BASH_REMATCH[2]}"
+              elif [[ "$cargo_current" =~ ^([0-9]+)\.0\.0$ ]]; then
+                  current="v${BASH_REMATCH[1]}"
+              else
+                  current=v0
+              fi
+          elif [[ -n "${VERSION_BRANCH}" ]]; then
               git fetch origin "${VERSION_BRANCH}"
-              cargo_current="$(git show "origin/${VERSION_BRANCH}:${CARGO_TOML_PATH}" 2>/dev/null | awk -F'"' '/^version[[:space:]]*=/{print $2; exit}')"
-            else
-              cargo_current="$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' "${CARGO_TOML_PATH}")"
-            fi
+              current="$(git show "origin/${VERSION_BRANCH}:VERSION" 2>/dev/null || echo v0)"
+          else
+              [[ -f VERSION ]] || echo "v0" >VERSION
+              current=$(cat VERSION)
+          fi
 
-            if [[ "$cargo_current" =~ ^([0-9]+)\.0\.0-rc([0-9]+)$ ]]; then
+          if [[ "$current" =~ ^v([0-9]+)-rc([0-9]+)$ ]]; then
               major="${BASH_REMATCH[1]}"
               rc="${BASH_REMATCH[2]}"
-            elif [[ "$cargo_current" =~ ^([0-9]+)\.0\.0$ ]]; then
+          elif [[ "$current" =~ ^v([0-9]+)$ ]]; then
               major="${BASH_REMATCH[1]}"
               rc=""
-            else
-              major=0
-              rc=""
-            fi
-
-            # Same arithmetic as the VERSION-file branch below: an rc series
-            # is numbered against the current major and does not advance it;
-            # a release strips the rc suffix and advances the stored version
-            # to the next major, so the following rc opens a fresh series.
-            if [[ "$tag" == rc-* ]]; then
-              if [[ -n "$rc" ]]; then
-                new="v${major}-rc$(( rc + 1 ))"
-              else
-                new="v${major}-rc0"
-              fi
-              prerelease="true"
-              version_to_write="$new"
-            elif [[ "$tag" == release-* ]]; then
-              if [[ -n "$rc" ]]; then
-                new="v${major}"
-              else
-                new="v$(( major + 1 ))"
-              fi
-              prerelease="false"
-              version_to_write="v$(( major + 1 ))"
-            else
-              echo "Unexpected tag: $tag (expected rc-* or release-*)" >&2
+          else
+              echo "Unrecognised VERSION format: $current" >&2
               exit 1
-            fi
+          fi
 
-            {
+          # An rc series in progress counts up, or a release finalises it.
+          # Without one, Cargo.toml holds the last release, so either tag
+          # opens the next major. A VERSION file already holds that major
+          # for an rc, a release still advances it
+          if [[ -n "$rc" ]]; then
+              if [[ "$prerelease" == "true" ]]; then
+                  new="v${major}-rc$((rc + 1))"
+              else
+                  new="v${major}"
+              fi
+          elif [[ -n "${CARGO_TOML_PATH}" ]]; then
+              if [[ "$prerelease" == "true" ]]; then
+                  new="v$((major + 1))-rc0"
+              else
+                  new="v$((major + 1))"
+              fi
+          elif [[ "$prerelease" == "true" ]]; then
+              new="v${major}-rc0"
+          else
+              new="v$((major + 1))"
+          fi
+
+          # Cargo.toml is user facing and stores what was released. A VERSION
+          # file is bookkeeping and after a release stores the next major, so
+          # the following rc opens a fresh series
+          if [[ -n "${CARGO_TOML_PATH}" || "$prerelease" == "true" ]]; then
+              version_to_write="$new"
+          else
+              version_to_write="v$((major + 1))"
+          fi
+
+          {
               echo "version=${new}"
               echo "version_to_write=${version_to_write}"
               echo "prerelease=${prerelease}"
               echo "cargo_version=$(to_cargo_version "$version_to_write")"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ -n "${VERSION_BRANCH}" ]]; then
-            git fetch origin "${VERSION_BRANCH}"
-            current="$(git show "origin/${VERSION_BRANCH}:VERSION" 2>/dev/null || echo v0)"
-          else
-            [[ -f VERSION ]] || echo "v0" > VERSION
-            current=$(cat VERSION)
-          fi
-
-          if [[ "$current" =~ ^v([0-9]+)-rc([0-9]+)$ ]]; then
-            major="${BASH_REMATCH[1]}"
-            rc="${BASH_REMATCH[2]}"
-          elif [[ "$current" =~ ^v([0-9]+)$ ]]; then
-            major="${BASH_REMATCH[1]}"
-            rc=""
-          else
-            echo "Unrecognised VERSION format: $current" >&2
-            exit 1
-          fi
-
-          if [[ "$tag" == rc-* ]]; then
-            if [[ -n "$rc" ]]; then
-              new="v${major}-rc$(( rc + 1 ))"
-            else
-              new="v${major}-rc0"
-            fi
-            prerelease="true"
-            version_to_write="$new"
-          elif [[ "$tag" == release-* ]]; then
-            if [[ -n "$rc" ]]; then
-              new="v${major}"
-            else
-              new="v$(( major + 1 ))"
-            fi
-            prerelease="false"
-            version_to_write="v$(( major + 1 ))"
-          else
-            echo "Unexpected tag: $tag (expected rc-* or release-*)" >&2
-            exit 1
-          fi
-
-          {
-            echo "version=${new}"
-            echo "version_to_write=${version_to_write}"
-            echo "prerelease=${prerelease}"
-            echo "cargo_version=$(to_cargo_version "$version_to_write")"
-          } >> "$GITHUB_OUTPUT"
+          } >>"$GITHUB_OUTPUT"

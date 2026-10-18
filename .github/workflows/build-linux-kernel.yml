@@ -50,12 +50,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Checkout image-builder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: 'OpsBoost/image-builder'
-          ref: 'dev'
-          path: 'image-builder'
+      - name: Install image-builder
+        uses: bbusse/github-workflows/.github/actions/install-image-builder@dev
 
       - name: Build Linux Kernel
         env:
@@ -66,7 +62,6 @@ jobs:
           KERNEL_REF: ${{ inputs.kernel_ref }}
         run: |
           set -eu
-          sudo ./image-builder/image-builder install
           BUILD_USE_CONTAINER=1 \
             image-builder build linux-kernel "$CONFIG"
           echo "$GH_TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
@@ -97,71 +92,31 @@ jobs:
           echo "name=${name}" >> "$GITHUB_OUTPUT"
           echo "dtb=${dtb}" >> "$GITHUB_OUTPUT"
 
-      - name: Extract kernel image from build container
-        uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
-        id: extract-image
-        with:
-          image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
-          paths: usr/src/linux/${{ steps.resolve-image.outputs.name }}
-          platform: ${{ inputs.platform }}
-
-      - name: Extract kernel image checksum from build container
-        uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
-        id: extract-checksum
-        with:
-          image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
-          paths: usr/src/linux/${{ steps.resolve-image.outputs.name }}.sha384
-          platform: ${{ inputs.platform }}
-
-      # Boards ship the kernel's own dtb beside the image, see the kernel
-      # Containerfiles. Other flavours produce none
-      - name: Extract device tree from build container
-        if: ${{ steps.resolve-image.outputs.dtb == 'true' }}
-        uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
-        id: extract-dtb
-        with:
-          image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
-          paths: |
-            usr/src/linux/dtb-${{ inputs.config }}
-            usr/src/linux/dtb-${{ inputs.config }}.sha384
-          platform: ${{ inputs.platform }}
-
-      - name: Extract kernel version from build container
-        uses: bbusse/container-extract@075e1460e324b269cae4546ebb542ff5672bd328 # v1
-        id: extract-version
-        with:
-          image: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
-          paths: usr/src/linux/kernel-version
-          platform: ${{ inputs.platform }}
-
-      - name: Read kernel version
+      - name: Extract build outputs from build container
         id: kernel-version
-        shell: bash
         env:
-          VERSION_DIR: ${{ steps.extract-version.outputs.destination }}
-        run: |
-          set -eu
-          version="$(tr -d '[:space:]' < "${VERSION_DIR}/kernel-version")"
-          if [ -z "${version}" ]; then
-            echo "::error::kernelversion file was empty" >&2
-            exit 1
-          fi
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Move extracted files
-        env:
-          IMAGE_DIR: ${{ steps.extract-image.outputs.destination }}
-          CHECKSUM_DIR: ${{ steps.extract-checksum.outputs.destination }}
+          IMAGE: ghcr.io/bbusse/linux-kernel-${{ inputs.config }}:latest
+          PLATFORM: ${{ inputs.platform }}
           IMAGE_NAME: ${{ steps.resolve-image.outputs.name }}
-          DTB_DIR: ${{ steps.extract-dtb.outputs.destination }}
+          DTB: ${{ steps.resolve-image.outputs.dtb }}
           CONFIG: ${{ inputs.config }}
         run: |
-          set -eu
-          mv "${IMAGE_DIR}/${IMAGE_NAME}" "$IMAGE_NAME"
-          mv "${CHECKSUM_DIR}/${IMAGE_NAME}.sha384" "${IMAGE_NAME}.sha384"
-          if [ -n "${DTB_DIR}" ]; then
-            mv "${DTB_DIR}/dtb-${CONFIG}" "${DTB_DIR}/dtb-${CONFIG}.sha384" .
+          set -euo pipefail
+          files=("$IMAGE_NAME" "$IMAGE_NAME.sha384" kernel-version)
+          if [ "$DTB" = "true" ]; then
+              files+=("dtb-$CONFIG" "dtb-$CONFIG.sha384")
           fi
+          c="$(podman create --platform "$PLATFORM" "$IMAGE")"
+          trap 'podman rm "$c" >/dev/null' EXIT
+          for f in "${files[@]}"; do
+              podman cp "$c:/usr/src/linux/$f" .
+          done
+          version="$(tr -d '[:space:]' <kernel-version)"
+          if [ -z "$version" ]; then
+              echo "::error::kernelversion file was empty" >&2
+              exit 1
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
 
       - name: Upload kernel image artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

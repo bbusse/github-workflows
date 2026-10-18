@@ -53,12 +53,8 @@ jobs:
       - name: Aggressive cleanup
         uses: bbusse/github-workflows/.github/actions/aggressive-cleanup@dev
 
-      - name: Checkout image-builder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: OpsBoost/image-builder
-          ref: dev
-          path: image-builder
+      - name: Install image-builder
+        uses: bbusse/github-workflows/.github/actions/install-image-builder@dev
 
       - name: Build
         env:
@@ -76,7 +72,6 @@ jobs:
           GENTOO_BUILD_REF: ${{ github.ref_name }}
         run: |
           set -eu
-          sudo ./image-builder/image-builder install
           image-builder build "gentoo-${FLAVOUR}" "$ARCH"
           echo "$GHCR_TOKEN" | podman login "$REGISTRY" -u "$GITHUB_ACTOR" --password-stdin
           podman tag "$IMAGE_LOCAL" "$IMAGE_REMOTE"
