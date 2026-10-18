@@ -2,7 +2,8 @@
 name: Trivy vulnerability scan
 description: >-
   Scan a filesystem tree or a pushed image for OS and library
-  vulnerabilities. Reports only; the scan never fails the build.
+  vulnerabilities. Findings are reported, not fatal; a scan that cannot run
+  fails the build.
 
 inputs:
   scan_type:
@@ -17,45 +18,92 @@ inputs:
     required: false
     default: CRITICAL,HIGH
   trivy_version:
-    description: Trivy release to install
+    description: >-
+      Trivy release to install. Changing it needs the two binary checksums
+      below changed with it
     required: false
     default: v0.74.0
+  trivy_sha256_amd64:
+    description: sha256 of the linux/amd64 trivy binary of trivy_version
+    required: false
+    default: d89bcc6510a267f11b773398cbf1be5520ce39f9e8b6633178c4487f05b7d791
+  trivy_sha256_arm64:
+    description: sha256 of the linux/arm64 trivy binary of trivy_version
+    required: false
+    default: fed2c9ca7d27191ada34524b5eaf5216a845c6d6f3246143c3b475552ffe5358
 
 runs:
   using: composite
   steps:
+    # The release tarball first, then the same binary out of the trivy image on
+    # each registry Aqua publishes it to. The pin is on the binary rather than
+    # the tarball because that is the one artifact every source has in common:
+    # the image ships the identical file at /usr/local/bin/trivy
     - name: Install trivy
       shell: bash
       env:
         TRIVY_VERSION: ${{ inputs.trivy_version }}
+        SHA256_AMD64: ${{ inputs.trivy_sha256_amd64 }}
+        SHA256_ARM64: ${{ inputs.trivy_sha256_arm64 }}
       run: |
         set -euo pipefail
         version="${TRIVY_VERSION#v}"
         case "$(uname -m)" in
-          x86_64)  arch=64bit ;;
-          aarch64) arch=ARM64 ;;
+          x86_64)  arch=64bit; platform=linux/amd64; sha="$SHA256_AMD64" ;;
+          aarch64) arch=ARM64; platform=linux/arm64; sha="$SHA256_ARM64" ;;
           *)       echo "::error::unsupported architecture $(uname -m)" >&2; exit 1 ;;
         esac
-        tarball="trivy_${version}_Linux-${arch}.tar.gz"
-        base="https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}"
-
         tmp="$(mktemp -d)"
-        curl -fsSL -o "${tmp}/${tarball}" "${base}/${tarball}"
-        curl -fsSL -o "${tmp}/checksums.txt" "${base}/trivy_${version}_checksums.txt"
-        ( cd "$tmp" && grep " ${tarball}\$" checksums.txt | sha256sum -c - )
-        tar -xzf "${tmp}/${tarball}" -C "$tmp" trivy
-        sudo install -m 0755 "${tmp}/trivy" /usr/local/bin/trivy
-        rm -rf "$tmp"
+        trap 'rm -rf "$tmp"' EXIT
+
+        verified() {
+          [ -s "$tmp/trivy" ] && echo "${sha}  $tmp/trivy" | sha256sum -c - >/dev/null 2>&1
+        }
+
+        from_release() {
+          local tarball="trivy_${version}_Linux-${arch}.tar.gz"
+          curl -fsSL --retry 3 -o "$tmp/$tarball" \
+            "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/${tarball}" &&
+            tar -xzf "$tmp/$tarball" -C "$tmp" trivy
+        }
+
+        from_image() {
+          local image="$1:${version}" c
+          docker pull -q --platform "$platform" "$image" >/dev/null &&
+            c="$(docker create --platform "$platform" "$image")" &&
+            docker cp "$c:/usr/local/bin/trivy" "$tmp/trivy" &&
+            docker rm -f "$c" >/dev/null
+        }
+
+        source=""
+        if from_release && verified; then
+          source="github release"
+        else
+          for image in \
+              mirror.gcr.io/aquasec/trivy \
+              public.ecr.aws/aquasecurity/trivy \
+              ghcr.io/aquasecurity/trivy \
+              docker.io/aquasec/trivy; do
+            rm -f "$tmp/trivy"
+            echo "::warning::trivy ${TRIVY_VERSION} not installed from the github release, trying ${image}"
+            if from_image "$image" && verified; then
+              source="$image"
+              break
+            fi
+          done
+        fi
+        if [ -z "$source" ]; then
+          echo "::error::no source served a trivy ${TRIVY_VERSION} binary matching sha256 ${sha}" >&2
+          exit 1
+        fi
+
+        sudo install -m 0755 "$tmp/trivy" /usr/local/bin/trivy
+        echo "trivy ${TRIVY_VERSION} from ${source}"
         trivy --version
 
     - name: Run trivy scan
       shell: bash
       env:
-        # Pull the vulnerability DBs from AWS ECR: GitHub's own registry
-        # (ghcr.io) returns TOOMANYREQUESTS for them.
-        # Ref: https://github.com/aquasecurity/trivy-action/issues/389
-        TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
-        TRIVY_JAVA_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-java-db:1
         SCAN_TYPE: ${{ inputs.scan_type }}
         SCAN_REF: ${{ inputs.scan_ref }}
         SEVERITY: ${{ inputs.severity }}
@@ -65,8 +113,30 @@ runs:
           fs|image) ;;
           *) echo "::error::scan_type must be fs or image (got '$SCAN_TYPE')" >&2; exit 1 ;;
         esac
-        # Reporting only - a finding must not fail the build.
+        # Every DB source rate limits sooner or later: ghcr.io did
+        # (aquasecurity/trivy-action#389), public.ecr.aws does now. Trivy
+        # tries the repositories in order and moves on after a transient
+        # error, so list them all. Naming any repository drops trivy's own
+        # default list, which is why mirror.gcr.io and ghcr.io are spelled out
+        db_repos=(
+          mirror.gcr.io/aquasec/trivy-db:2
+          public.ecr.aws/aquasecurity/trivy-db:2
+          ghcr.io/aquasecurity/trivy-db:2
+        )
+        java_db_repos=(
+          mirror.gcr.io/aquasec/trivy-java-db:1
+          public.ecr.aws/aquasecurity/trivy-java-db:1
+          ghcr.io/aquasecurity/trivy-java-db:1
+        )
+        repo_args=()
+        for r in "${db_repos[@]}"; do repo_args+=(--db-repository "$r"); done
+        for r in "${java_db_repos[@]}"; do repo_args+=(--java-db-repository "$r"); done
+
+        # --exit-code 0 keeps findings from failing the build. Anything else
+        # trivy fails on, every DB source refusing the download included,
+        # still does: a scan that did not run is not a clean report
         trivy "$SCAN_TYPE" \
+          "${repo_args[@]}" \
           --scanners vuln \
           --severity "$SEVERITY" \
           --ignore-unfixed \
