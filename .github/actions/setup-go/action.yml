@@ -2,7 +2,9 @@
 name: Select a Go toolchain
 description: >-
   Point GOTOOLCHAIN at a Go release so the runner's preinstalled go fetches
-  that toolchain and checks it against the Go checksum database.
+  that toolchain and checks it against the Go checksum database. On a runner
+  without a go that can switch to it, such as macos-latest, install the
+  release from go.dev and check it against the checksum go.dev lists.
 
 inputs:
   version:
@@ -31,14 +33,35 @@ runs:
             echo "::error::no Go release matches '$GO_VERSION'" >&2
             exit 1
         fi
-        command -v go >/dev/null || {
-            echo "::error::no preinstalled go to fetch $version with" >&2
-            exit 1
-        }
         export GOTOOLCHAIN="$version"
-        if [ "$(go env GOVERSION)" != "$version" ]; then
-            echo "::error::the runner's go is too old to switch to $version" >&2
-            exit 1
+        if ! command -v go >/dev/null || [ "$(go env GOVERSION 2>/dev/null)" != "$version" ]; then
+            os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+            case "$(uname -m)" in
+            x86_64 | amd64) arch=amd64 ;;
+            arm64 | aarch64) arch=arm64 ;;
+            *)
+                echo "::error::no Go release for $(uname -m)" >&2
+                exit 1
+                ;;
+            esac
+            file="$version.$os-$arch.tar.gz"
+            sum="$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' |
+                jq -r --arg v "$version" --arg f "$file" 'first(.[] | select(.version == $v) | .files[] | select(.filename == $f) | .sha256) // empty')"
+            if [ -z "$sum" ]; then
+                echo "::error::go.dev lists no $file" >&2
+                exit 1
+            fi
+            dir="${RUNNER_TEMP:-/tmp}/$version"
+            mkdir -p "$dir"
+            curl -fsSL -o "$dir.tar.gz" "https://go.dev/dl/$file"
+            if [ "$(shasum -a 256 "$dir.tar.gz" | awk '{print $1}')" != "$sum" ]; then
+                echo "::error::$file does not match its checksum on go.dev" >&2
+                exit 1
+            fi
+            tar -xzf "$dir.tar.gz" -C "$dir"
+            rm -f "$dir.tar.gz"
+            export PATH="$dir/go/bin:$PATH"
+            echo "$dir/go/bin" >>"$GITHUB_PATH"
         fi
         echo "GOTOOLCHAIN=$version" >>"$GITHUB_ENV"
         go version
