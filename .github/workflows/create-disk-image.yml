@@ -87,6 +87,21 @@ on:
         required: false
         default: zfs
         type: string
+      provision_ca_cert:
+        description: >-
+          Path in the calling repository to a PEM certificate that
+          fetch-provision verifies the gateway's https certificate against.
+          Empty leaves the gateway unverified unless a pin is given
+        required: false
+        default: ''
+        type: string
+      provision_pinned_pubkey:
+        description: >-
+          sha256//BASE64 public key pins of the gateway, separated by ;,
+          that fetch-provision requires. Empty pins nothing
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -180,6 +195,8 @@ jobs:
           U_ROOT_COMMANDS: ${{ inputs.u_root_commands }}
           LINUX_ROOTFS_FS: ${{ inputs.linux_rootfs_fs }}
           FREEBSD_ROOTFS_FS: ${{ inputs.freebsd_rootfs_fs }}
+          PROVISION_CA_CERT: ${{ inputs.provision_ca_cert }}
+          PROVISION_PINNED_PUBKEY: ${{ inputs.provision_pinned_pubkey }}
           TARGET: ${{ steps.resolve.outputs.target }}
           ARCH: ${{ inputs.arch }}
         run: |

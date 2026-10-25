@@ -9,7 +9,7 @@ on:
         required: true
         type: string
       flavour:
-        description: Gentoo target flavour (containeros|sway)
+        description: Gentoo target flavour (containeros|k8s|sway)
         required: true
         type: string
       overlays:

@@ -32,6 +32,26 @@ on:
         required: false
         default: 'stable'
         type: string
+      architectures:
+        description: GOARCH values to build, as a JSON list
+        required: false
+        default: '["amd64", "arm64"]'
+        type: string
+      gomips:
+        description: GOMIPS for mips and mipsle builds, e.g. softfloat for CPUs without an FPU; empty keeps Go's default
+        required: false
+        default: ''
+        type: string
+      trimpath:
+        description: Build with -trimpath
+        required: false
+        default: false
+        type: boolean
+      ldflags:
+        description: Value for go build -ldflags, e.g. -s -w to strip the binary
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -43,10 +63,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(inputs.architectures) }}
     env:
       GOOS: linux
       GOARCH: ${{ matrix.arch }}
+      GOMIPS: ${{ inputs.gomips }}
       CGO_ENABLED: 0
       ARTIFACT_SUFFIX: linux-${{ matrix.arch }}
     steps:
@@ -64,10 +85,15 @@ jobs:
         env:
           BINARY_NAME: ${{ inputs.binary_name }}
           ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          TRIMPATH: ${{ inputs.trimpath }}
+          LDFLAGS: ${{ inputs.ldflags }}
         run: |
-          set -eu
+          set -euo pipefail
           bin="${BINARY_NAME:-$ARTIFACT_NAME}"
-          go build -o "$bin" .
+          flags=()
+          [ "$TRIMPATH" != true ] || flags+=(-trimpath)
+          [ -z "$LDFLAGS" ] || flags+=(-ldflags "$LDFLAGS")
+          go build "${flags[@]}" -o "$bin" .
           tar -cJf "${ARTIFACT_NAME}-${ARTIFACT_SUFFIX}.tar.xz" "$bin"
 
       - name: Upload artifact
