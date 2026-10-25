@@ -26,6 +26,14 @@ on:
         required: false
         default: 12288
         type: number
+      filesystems:
+        description: >-
+          Space separated root filesystems to build an image for, ufs and
+          zfs. One world build serves all of them, each lands as
+          freebsd-<arch>-<fs>.img
+        required: false
+        default: 'ufs zfs'
+        type: string
 
 permissions:
   contents: read
@@ -47,6 +55,7 @@ jobs:
       ARCH: ${{ matrix.arch }}
       RELEASE: ${{ inputs.release }}
       IMAGE_BUILDER_REF: ${{ inputs.image_builder_ref }}
+      FREEBSD_BUILD_FS: ${{ inputs.filesystems }}
     steps:
       - name: Build FreeBSD in VM
         id: build
@@ -61,7 +70,7 @@ jobs:
           usesh: true
           sync: rsync
           sync-time: true
-          envs: 'ARCH RELEASE IMAGE_BUILDER_REF'
+          envs: 'ARCH RELEASE IMAGE_BUILDER_REF FREEBSD_BUILD_FS'
           prepare: |
             pkg install -y bash git sudo
           run: |
@@ -76,14 +85,16 @@ jobs:
             # Keep the full build output as a file too, so it can be
             # pulled back even if this step fails or times out
             rc=0
-            { sudo image-builder build freebsd "$ARCH" "$RELEASE" || rc=$?; echo "$rc" >/tmp/build.rc; } 2>&1 | tee "$log"
+            { sudo env FREEBSD_BUILD_FS="$FREEBSD_BUILD_FS" image-builder build freebsd "$ARCH" "$RELEASE" || rc=$?; echo "$rc" >/tmp/build.rc; } 2>&1 | tee "$log"
             rc="$(cat /tmp/build.rc)"
             if [ "$rc" -ne 0 ]; then
               echo "image-builder failed with exit code $rc" >&2
               exit "$rc"
             fi
 
-            cp "/tmp/freebsd-src/freebsd-${ARCH}.img" "$GITHUB_WORKSPACE/"
+            for fs in $FREEBSD_BUILD_FS; do
+              cp "/tmp/freebsd-src/freebsd-${ARCH}-${fs}.img" "$GITHUB_WORKSPACE/"
+            done
 
       # The action only copies the workspace back when 'run' succeeds; a
       # custom-shell step syncs it back afterwards in any case, which
@@ -103,7 +114,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: freebsd-${{ inputs.release }}-${{ matrix.arch }}-${{ github.run_number }}
-          path: freebsd-${{ matrix.arch }}.img
+          path: freebsd-${{ matrix.arch }}-*.img
           if-no-files-found: error
 
       - name: Upload build log

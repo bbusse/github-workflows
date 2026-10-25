@@ -228,7 +228,7 @@ jobs:
       # with <target>-<arch>.raw inside, so DISK_IMAGE can be derived for
       # those. Other producers (e.g. build-freebsd.yml's
       # freebsd-<release>-<arch>-<run> holding
-      # freebsd-<arch>.img) name things differently: there, export
+      # freebsd-<arch>-<fs>.img) name things differently: there, export
       # nothing unless disk_image says what to use, so the suite's own default
       # stays in effect instead of being overridden with a file that does not
       # exist.

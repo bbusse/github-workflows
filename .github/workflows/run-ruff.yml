@@ -1,0 +1,84 @@
+---
+name: Run ruff
+
+# ruff in two passes: a hard gate on things that are unambiguously broken
+# (syntax errors, undefined names), then the full pass. The full pass is
+# advisory by default so a style nit cannot block a release, set strict to
+# make it fail the build instead.
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Directory to run ruff from
+        required: false
+        default: .
+        type: string
+      target_path:
+        description: Path to check, relative to working_directory
+        required: false
+        default: .
+        type: string
+      ruff_version:
+        description: >-
+          ruff release to install from PyPI. Pinned rather than latest, because
+          a new release can add rules and turn a green caller red
+        required: false
+        default: 0.17.1
+        type: string
+      select:
+        description: >-
+          Rule codes for the full pass, e.g. "E,F,I". Empty uses the caller's
+          ruff configuration, or ruff's defaults without one
+        required: false
+        default: ''
+        type: string
+      strict:
+        description: >-
+          Fail the build on findings of the full pass too, not just on the
+          syntax and undefined name gate
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  ruff:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install ruff
+        env:
+          RUFF_VERSION: ${{ inputs.ruff_version }}
+        run: |
+          set -eu
+          python3 -m venv "$RUNNER_TEMP/ruff"
+          "$RUNNER_TEMP/ruff/bin/pip" install --disable-pip-version-check "ruff==$RUFF_VERSION"
+          echo "$RUNNER_TEMP/ruff/bin" >>"$GITHUB_PATH"
+          "$RUNNER_TEMP/ruff/bin/ruff" --version
+
+      - name: Check
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TARGET_PATH: ${{ inputs.target_path }}
+          SELECT: ${{ inputs.select }}
+          STRICT: ${{ inputs.strict }}
+        run: |
+          set -eu
+
+          # Never advisory: these are errors in any style
+          ruff check "$TARGET_PATH" --select E9,F63,F7,F82 --output-format=github
+
+          args=(check "$TARGET_PATH" --output-format=github)
+          if [ -n "$SELECT" ]; then
+              args+=(--select "$SELECT")
+          fi
+          if [ "$STRICT" != "true" ]; then
+              args+=(--exit-zero)
+          fi
+          ruff "${args[@]}"

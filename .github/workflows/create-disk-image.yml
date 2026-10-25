@@ -64,6 +64,29 @@ on:
         required: false
         default: ''
         type: string
+      u_root_commands:
+        description: >-
+          Space separated u-root commands, e.g. "gosh netcat", linked into
+          the image user's ~/.local/bin from the bb of the published u-root
+          initramfs. Empty installs none
+        required: false
+        default: ''
+        type: string
+      linux_rootfs_fs:
+        description: >-
+          Filesystem of the image's Linux root, xfs or zfs. image-builder
+          refuses zfs until Linux can import a root pool without an
+          initramfs
+        required: false
+        default: xfs
+        type: string
+      freebsd_rootfs_fs:
+        description: >-
+          Filesystem of the FreeBSD slot, ufs or zfs: picks which of
+          freebsd-build's two images is composed in
+        required: false
+        default: zfs
+        type: string
 
 permissions:
   contents: read
@@ -105,6 +128,11 @@ jobs:
 
       - name: Install image-builder
         uses: bbusse/github-workflows/.github/actions/install-image-builder@dev
+
+      # U_ROOT_COMMANDS unpacks bb from the u-root initramfs with cpio
+      - name: Install cpio
+        if: ${{ inputs.u_root_commands != '' }}
+        run: command -v cpio >/dev/null || sudo apt-get install -y cpio
 
       # The stage4 that image-builder would otherwise fetch comes from the
       # "latest" release tag, which a separate workflow publishes. Fetching
@@ -149,6 +177,9 @@ jobs:
           GENTOO_OVERLAYS: ${{ inputs.overlays }}
           EXCLUDE_IMAGES: ${{ inputs.exclude_images }}
           INCLUDE_IMAGES: ${{ inputs.include_images }}
+          U_ROOT_COMMANDS: ${{ inputs.u_root_commands }}
+          LINUX_ROOTFS_FS: ${{ inputs.linux_rootfs_fs }}
+          FREEBSD_ROOTFS_FS: ${{ inputs.freebsd_rootfs_fs }}
           TARGET: ${{ steps.resolve.outputs.target }}
           ARCH: ${{ inputs.arch }}
         run: |

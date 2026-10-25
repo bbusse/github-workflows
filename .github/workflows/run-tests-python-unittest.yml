@@ -1,0 +1,74 @@
+---
+name: Run tests python unittest
+
+# Plain unittest on the runner's python3, with the dependencies installed into
+# a venv. Linux only on purpose: suites that read /proc or netlink skip
+# themselves anywhere else, so this is the one place they actually run.
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Directory to run the tests from
+        required: false
+        default: .
+        type: string
+      pip_install:
+        description: >-
+          Space separated pip specs installed into a venv before the tests run,
+          e.g. "requests paho-mqtt". Leave empty for a suite that needs
+          nothing beyond the standard library
+        required: false
+        default: ''
+        type: string
+      pythonpath:
+        description: >-
+          Exported as PYTHONPATH, relative to working_directory, for a project
+          that is imported from a src layout rather than installed
+        required: false
+        default: ''
+        type: string
+      unittest_args:
+        description: >-
+          Arguments passed to `python3 -m unittest`, e.g.
+          "discover -s tests" for a tests directory
+        required: false
+        default: discover
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test-python-unittest:
+    name: Test python unittest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install python packages
+        if: ${{ inputs.pip_install != '' }}
+        env:
+          PIP_INSTALL: ${{ inputs.pip_install }}
+        run: |
+          set -eu
+          python3 -m venv "$RUNNER_TEMP/venv"
+          # shellcheck disable=SC2086 # a space-separated list of pip specs
+          "$RUNNER_TEMP/venv/bin/pip" install --disable-pip-version-check $PIP_INSTALL
+          echo "$RUNNER_TEMP/venv/bin" >>"$GITHUB_PATH"
+
+      - name: Run unittest
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          PYTHONPATH_INPUT: ${{ inputs.pythonpath }}
+          UNITTEST_ARGS: ${{ inputs.unittest_args }}
+        run: |
+          set -eu
+          if [ -n "$PYTHONPATH_INPUT" ]; then
+              PYTHONPATH="$PWD/$PYTHONPATH_INPUT"
+              export PYTHONPATH
+          fi
+          # Finding no tests exits non zero, so an empty discovery fails
+          # shellcheck disable=SC2086 # a space-separated list of arguments
+          python3 -m unittest $UNITTEST_ARGS
