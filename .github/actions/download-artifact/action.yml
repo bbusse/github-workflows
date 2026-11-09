@@ -1,0 +1,60 @@
+---
+name: Download build artifacts
+description: >-
+  actions/download-artifact on GitHub and Forgejo alike, for the same reason
+  as the upload-artifact action next to this one.
+
+inputs:
+  name:
+    description: Artifact to download, empty for all
+    required: false
+    default: ''
+  path:
+    description: Destination directory
+    required: false
+    default: ''
+  pattern:
+    description: Glob of artifact names to download
+    required: false
+    default: ''
+  merge-multiple:
+    description: Put the files of all matched artifacts into one directory
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Download artifact
+      if: ${{ github.server_url == 'https://github.com' }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ inputs.path }}
+        pattern: ${{ inputs.pattern }}
+        merge-multiple: ${{ inputs.merge-multiple }}
+
+    - name: Download artifact
+      if: ${{ github.server_url != 'https://github.com' }}
+      shell: bash
+      env:
+        GITHUB_SERVER_URL: https://github.com
+        INPUT_NAME: ${{ inputs.name }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_PATTERN: ${{ inputs.pattern }}
+        INPUT_REPOSITORY: ${{ github.repository }}
+        MERGE_MULTIPLE: ${{ inputs.merge-multiple }}
+        RUN_ID: ${{ github.run_id }}
+      # Shells drop variables with a dash in the name, so env hands those
+      # inputs to node directly
+      run: |
+        set -eu
+        d="${RUNNER_TEMP:-/tmp}/download-artifact"
+        mkdir -p "$d"
+        curl -fsSL https://codeload.github.com/actions/download-artifact/tar.gz/3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c |
+          tar -xz -C "$d" --strip-components 1
+        env "INPUT_MERGE-MULTIPLE=$MERGE_MULTIPLE" \
+          "INPUT_RUN-ID=$RUN_ID" \
+          INPUT_SKIP-DECOMPRESS=false \
+          INPUT_DIGEST-MISMATCH=error \
+          node "$d/dist/index.js"

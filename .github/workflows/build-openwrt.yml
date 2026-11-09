@@ -62,7 +62,7 @@ jobs:
       # VM disk images (x86/64 and armsr/armv8): combined EFI/BIOS disks
       # and bare rootfs images, gzip-compressed, from bin/targets/<t>/<s>.
       - name: Upload disk image artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: bbusse/github-workflows/.github/actions/upload-artifact@dev
         with:
           name: ${{ inputs.artifact_name }}-${{ inputs.flavour }}
           path: openwrt/bin/targets/*/*/openwrt-*.img.gz
@@ -73,7 +73,7 @@ jobs:
       # for every flavour. Signed with the build's apk key, see the
       # OPENWRT_APK_PRIVATE_KEY secret.
       - name: Upload packages artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: bbusse/github-workflows/.github/actions/upload-artifact@dev
         with:
           name: ${{ inputs.artifact_name }}-${{ inputs.flavour }}-packages
           path: |
@@ -83,7 +83,7 @@ jobs:
       # Embedded targets (e.g. ath79 for the ALFA AP120C) put their
       # sysupgrade/factory/initramfs images under bin/targets/<target>/<sub>.
       - name: Upload firmware images artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: bbusse/github-workflows/.github/actions/upload-artifact@dev
         with:
           name: ${{ inputs.artifact_name }}-${{ inputs.flavour }}-firmware
           path: |

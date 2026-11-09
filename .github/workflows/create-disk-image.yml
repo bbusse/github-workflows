@@ -74,9 +74,9 @@ on:
         type: string
       linux_rootfs_fs:
         description: >-
-          Filesystem of the image's Linux root, xfs or zfs. image-builder
-          refuses zfs until Linux can import a root pool without an
-          initramfs
+          Filesystem of the image's Linux root, xfs or zfs. zfs boots a
+          dataset of a pool on the root partition with no initramfs, which
+          needs kernels with linux-kernel-build's ZFS root import
         required: false
         default: xfs
         type: string
@@ -204,7 +204,7 @@ jobs:
           image-builder create "$TARGET" "$ARCH"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: bbusse/github-workflows/.github/actions/upload-artifact@dev
         with:
           name: disk-image-${{ steps.resolve.outputs.target }}-${{ inputs.arch }}
           path: ${{ steps.resolve.outputs.target }}-${{ inputs.arch }}.raw

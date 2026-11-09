@@ -65,11 +65,16 @@ jobs:
         run: |
           set -eu
           bin="${BINARY_NAME:-$ARTIFACT_NAME}"
-          go build -o "$bin" .
+          # Never empty since macOS /bin/bash 3.2 fails on an empty array under set -u
+          flags=(-o "$bin")
+          [ "$TRIMPATH" != true ] || flags+=(-trimpath)
+          [ -z "$LDFLAGS" ] || flags+=(-ldflags "$LDFLAGS")
+          [ -z "$TAGS" ] || flags+=(-tags "$TAGS")
+          go build "${flags[@]}" .
           tar -cJf "${ARTIFACT_NAME}-${ARTIFACT_SUFFIX}.tar.xz" "$bin"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: bbusse/github-workflows/.github/actions/upload-artifact@dev
         with:
           name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}.tar.xz
           path: ${{ inputs.working_directory }}/${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}.tar.xz

@@ -111,7 +111,7 @@ jobs:
           fi
 
       - name: Upload FreeBSD image
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: bbusse/github-workflows/.github/actions/upload-artifact@dev
         with:
           name: freebsd-${{ inputs.release }}-${{ matrix.arch }}-${{ github.run_number }}
           path: freebsd-${{ matrix.arch }}-*.img
@@ -119,7 +119,7 @@ jobs:
 
       - name: Upload build log
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: bbusse/github-workflows/.github/actions/upload-artifact@dev
         with:
           name: freebsd-${{ inputs.release }}-${{ matrix.arch }}-build-log-${{ github.run_number }}
           path: logs/
