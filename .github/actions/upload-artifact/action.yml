@@ -4,7 +4,8 @@ description: >-
   actions/upload-artifact on GitHub and Forgejo alike. Forgejo serves the
   artifact API, but the action refuses every server other than github.com and
   Forgejo's runner resets GITHUB_SERVER_URL for action steps, so on Forgejo
-  the same pinned release runs from a run step instead.
+  a pinned release runs from a run step instead. That is v6.0.0, as v7 sends
+  a mime_type field Forgejo 16 rejects, and it always zips, ignoring archive.
 
 inputs:
   name:
@@ -47,7 +48,6 @@ runs:
         GITHUB_SERVER_URL: https://github.com
         INPUT_NAME: ${{ inputs.name }}
         INPUT_PATH: ${{ inputs.path }}
-        INPUT_ARCHIVE: ${{ inputs.archive }}
         IF_NO_FILES_FOUND: ${{ inputs.if-no-files-found }}
         RETENTION_DAYS: ${{ inputs.retention-days }}
       # Shells drop variables with a dash in the name, so env hands those
@@ -56,7 +56,7 @@ runs:
         set -eu
         d="${RUNNER_TEMP:-/tmp}/upload-artifact"
         mkdir -p "$d"
-        curl -fsSL https://codeload.github.com/actions/upload-artifact/tar.gz/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a |
+        curl -fsSL https://codeload.github.com/actions/upload-artifact/tar.gz/b7c566a772e6b6bfb58ed0dc250532a479d7789f |
           tar -xz -C "$d" --strip-components 1
         env "INPUT_IF-NO-FILES-FOUND=$IF_NO_FILES_FOUND" \
           "INPUT_RETENTION-DAYS=$RETENTION_DAYS" \
