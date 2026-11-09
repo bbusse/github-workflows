@@ -91,9 +91,11 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -eu
-          sudo apt-get update
+          sudo=
+          [ "$(id -u)" -eq 0 ] || sudo=sudo
+          $sudo apt-get update
           # shellcheck disable=SC2086 # deliberately word-split into packages
-          sudo apt-get install -y --no-install-recommends $CROSS_PACKAGES
+          $sudo apt-get install -y --no-install-recommends $CROSS_PACKAGES
           # cargo and the cc crate each look for a differently-shaped env var
           # named after the target triple; derive both from the triple itself
           # so a new cross target only has to name its compiler above.
@@ -136,8 +138,10 @@ jobs:
       - name: Install cross toolchain
         run: |
           set -eu
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo=
+          [ "$(id -u)" -eq 0 ] || sudo=sudo
+          $sudo apt-get update
+          $sudo apt-get install -y --no-install-recommends \
             gcc-arm-linux-gnueabihf \
             libc6-dev-armhf-cross
 

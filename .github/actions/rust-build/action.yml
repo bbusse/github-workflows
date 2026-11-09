@@ -26,7 +26,8 @@ runs:
   using: composite
   steps:
     # rustup ships preinstalled on the GitHub-hosted Linux and macOS images,
-    # so the toolchain is one command rather than a third-party action.
+    # so the toolchain is one command rather than a third-party action. Runners
+    # without it, such as Forgejo's node image, install it from sh.rustup.rs
     - name: Install Rust toolchain
       shell: bash
       env:
@@ -34,6 +35,12 @@ runs:
         TARGET: ${{ inputs.target }}
       run: |
         set -eu
+        if ! command -v rustup >/dev/null; then
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+            sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          PATH="$HOME/.cargo/bin:$PATH"
+        fi
         rustup toolchain install "$TOOLCHAIN" --profile minimal --no-self-update
         rustup target add --toolchain "$TOOLCHAIN" "$TARGET"
         rustup default "$TOOLCHAIN"
