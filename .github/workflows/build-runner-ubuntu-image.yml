@@ -1,0 +1,28 @@
+---
+name: Build and Push Runner Image
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'containers/runner-ubuntu/**'
+      - '.github/workflows/build-runner-ubuntu-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build and push
+    uses: ./.github/workflows/container-build-push.yml
+    with:
+      image_name: runner-ubuntu
+      image_repository: ghcr.io/bbusse
+      container_registry: ghcr
+      container_build_context: containers/runner-ubuntu
+      container_file: containers/runner-ubuntu/Containerfile
+      image_platforms: linux/amd64,linux/arm64
+      image_tag: latest
+      container_push_to_registry: true

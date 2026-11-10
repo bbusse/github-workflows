@@ -1,0 +1,14 @@
+# Job image for Forgejo runners under the ubuntu-latest label. The runner's
+# own default, Forgejo's node image, plus what the shared workflows expect
+# from a GitHub runner: the docker CLI with buildx to reach the runner's
+# dind sidecar, jq, and sudo, which is a no-op for root but keeps the
+# workflows' sudo calls working
+FROM docker.io/library/docker:29.9.2-cli AS docker
+
+FROM data.forgejo.org/oci/node:22-bookworm
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends jq sudo \
+    && rm -rf /var/lib/apt/lists/*
+# Same release as the dind sidecar the CLI talks to
+COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
