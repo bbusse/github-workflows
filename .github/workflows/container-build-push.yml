@@ -64,7 +64,7 @@ on:
         default: true
       container_registry:
         type: string
-        description: The container registry to push to, one of ghcr / ecr
+        description: The container registry to push to, one of ghcr / ecr / forgejo. forgejo pushes to the registry of the Forgejo instance running the job
         required: false
         default: 'ecr'
       build_args:
