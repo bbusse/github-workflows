@@ -82,6 +82,14 @@ on:
         required: false
         default: false
         type: boolean
+      buildx_driver_opts:
+        description: >-
+          Newline-separated driver-opts for the buildx builder, passed to
+          setup-buildx-action. For a runner whose builds reach the internet
+          only through a proxy, e.g. env.https_proxy=http://proxy:3128
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -161,6 +169,8 @@ jobs:
 
       - name: Set up Docker buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          driver-opts: ${{ inputs.buildx_driver_opts }}
 
       - name: Log in and resolve image metadata
         id: meta
