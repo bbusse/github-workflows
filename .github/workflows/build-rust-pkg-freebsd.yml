@@ -17,38 +17,64 @@ on:
         required: false
         default: .
         type: string
+      runner:
+        description: Label of a FreeBSD runner, the build runs there in FreeBSD's official toolchain image. Empty builds in a FreeBSD VM on ubuntu-latest
+        required: false
+        default: ''
+        type: string
+      freebsd_release:
+        description: FreeBSD release of the image or the VM
+        required: false
+        default: '15.1'
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   build-freebsd:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    container: ${{ inputs.runner != '' && format('ghcr.io/freebsd/freebsd-toolchain:{0}', inputs.freebsd_release) || '' }}
     name: FreeBSD Rust Build
     env:
       WORKING_DIRECTORY: ${{ inputs.working_directory }}
       BINARY_NAME: ${{ inputs.binary_name }}
       ARTIFACT_NAME: ${{ inputs.artifact_name }}
+      BUILD: |
+        set -eu
+        freebsd-version
+        cd "$WORKING_DIRECTORY"
+        cargo build --release --locked --bin "$BINARY_NAME"
+        cp "target/release/${BINARY_NAME}" "$ARTIFACT_NAME"
+        tar -cJvf "${ARTIFACT_NAME}-freebsd-amd64.tar.xz" "$ARTIFACT_NAME"
+        ls -lah
     steps:
+      # The image holds the base system only. Checkout and the upload are
+      # JavaScript actions, so node has to be there before them
+      - name: Install packages
+        if: inputs.runner != ''
+        shell: sh
+        run: env ASSUME_ALWAYS_YES=yes pkg install bash ca_root_nss curl git node rust
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: FreeBSD Rust Build
+        if: inputs.runner != ''
+        shell: sh
+        run: sh -c "$BUILD"
+
+      # A Linux runner gets FreeBSD by booting it
+      - name: FreeBSD Rust Build in a VM
+        if: inputs.runner == ''
         uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
-        id: build
         with:
+          release: ${{ inputs.freebsd_release }}
           usesh: true
           prepare: |
             pkg install -y rust
 
           envs: 'WORKING_DIRECTORY BINARY_NAME ARTIFACT_NAME'
-          run: |
-            set -eu
-            freebsd-version
-            cd "$WORKING_DIRECTORY"
-            cargo build --release --locked --bin "$BINARY_NAME"
-            cp "target/release/${BINARY_NAME}" "$ARTIFACT_NAME"
-            tar -cJvf "${ARTIFACT_NAME}-freebsd-amd64.tar.xz" "$ARTIFACT_NAME"
-            ls -lah
+          run: ${{ env.BUILD }}
 
       - name: Upload artifact
         uses: bbusse/github-workflows/.github/actions/upload-artifact@dev
