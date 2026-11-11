@@ -170,7 +170,8 @@ jobs:
       # BuildKit runs in a container of its own, which does not inherit the
       # job's environment. A runner that reaches the internet only through a
       # proxy hands that proxy to its jobs, so pass it on, together with any
-      # BUILDX_DRIVER_OPTS the runner sets and the caller's own
+      # BUILDX_DRIVER_OPTS the runner sets and the caller's own. buildx reads
+      # each option as a CSV field, so the quotes keep no_proxy's commas
       - name: Resolve buildx driver options
         id: buildx
         env:
@@ -181,7 +182,7 @@ jobs:
               echo "opts<<BUILDX_OPTS_EOF"
               for v in http_proxy https_proxy no_proxy; do
                   val="$(printenv "$(printf '%s' "$v" | tr '[:lower:]' '[:upper:]')" || printenv "$v" || true)"
-                  [ -z "$val" ] || echo "env.$v=$val"
+                  [ -z "$val" ] || echo "\"env.$v=$val\""
               done
               [ -z "${BUILDX_DRIVER_OPTS:-}" ] || printf '%s\n' "$BUILDX_DRIVER_OPTS"
               [ -z "$CALLER_OPTS" ] || printf '%s\n' "$CALLER_OPTS"
