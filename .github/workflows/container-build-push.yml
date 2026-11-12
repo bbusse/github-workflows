@@ -163,8 +163,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Only needed when this runner is not native to the platform it builds.
+      # The label says nothing about the architecture, runner.arch does
       - name: Set up QEMU
-        if: ${{ !((endsWith(matrix.platform, '/arm64') && matrix.runner == 'ubuntu-24.04-arm') || (endsWith(matrix.platform, '/amd64') && matrix.runner == 'ubuntu-latest')) }}
+        if: ${{ !((endsWith(matrix.platform, '/arm64') && runner.arch == 'ARM64') || (endsWith(matrix.platform, '/amd64') && runner.arch == 'X64')) }}
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       # BuildKit runs in a container of its own, which does not inherit the
