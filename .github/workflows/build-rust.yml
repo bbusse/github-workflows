@@ -32,6 +32,11 @@ on:
         required: false
         default: false
         type: boolean
+      enable_macos_build:
+        description: Build the macOS target (macos-arm64), off also skips the dmg
+        required: false
+        default: true
+        type: boolean
       dmg:
         description: Also package the macOS build into a .dmg (requires an <binary_name>.app bundle template checked into the repo, unless app_bundle_path is set)
         required: false
@@ -57,28 +62,43 @@ permissions:
   contents: read
 
 jobs:
+  # The build matrix, minus the targets switched off. exclude cannot drop an
+  # include entry and a job-level if cannot see the matrix, so it is computed
+  targets:
+    name: Select targets
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Select targets
+        id: select
+        env:
+          MACOS: ${{ inputs.enable_macos_build }}
+          ARMV7: ${{ inputs.armv7 }}
+        run: |
+          set -eu
+          matrix=$(jq -nc --argjson macos "$MACOS" --argjson armv7 "$ARMV7" '[
+            {on: $macos, suffix: "macos-arm64", target: "aarch64-apple-darwin", runner: "macos-latest"},
+            {on: true, suffix: "linux-amd64", target: "x86_64-unknown-linux-gnu", runner: "ubuntu-latest"},
+            {on: true, suffix: "linux-arm64", target: "aarch64-unknown-linux-gnu", runner: "ubuntu-latest",
+              cross_packages: "gcc-aarch64-linux-gnu libc6-dev-arm64-cross", cross_cc: "aarch64-linux-gnu-gcc"},
+            {on: $armv7, suffix: "linux-armv7", target: "armv7-unknown-linux-gnueabihf", runner: "ubuntu-latest",
+              cross_packages: "gcc-arm-linux-gnueabihf libc6-dev-armhf-cross", cross_cc: "arm-linux-gnueabihf-gcc"}
+          ] | map(select(.on) | del(.on))')
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+
   # One shape for every rustup-buildable target: install the toolchain, build,
   # stage under dist/. Targets needing a cross compiler carry the apt packages
   # and the compiler binary in the matrix; the env var names cargo looks for
   # are derived from the triple rather than spelled out per target.
   build:
     name: Build ${{ matrix.suffix }}
+    needs: targets
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - suffix: macos-arm64
-            target: aarch64-apple-darwin
-            runner: macos-latest
-          - suffix: linux-amd64
-            target: x86_64-unknown-linux-gnu
-            runner: ubuntu-latest
-          - suffix: linux-arm64
-            target: aarch64-unknown-linux-gnu
-            runner: ubuntu-latest
-            cross_packages: gcc-aarch64-linux-gnu libc6-dev-arm64-cross
-            cross_cc: aarch64-linux-gnu-gcc
+        include: ${{ fromJSON(needs.targets.outputs.matrix) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -118,47 +138,6 @@ jobs:
         with:
           name: ${{ inputs.artifact_name }}-${{ matrix.suffix }}
           path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ matrix.suffix }}
-
-  # Same shape as a `build` matrix entry, but opt-in: a job-level `if` can't
-  # see the matrix context, so an optional target can't just be another entry
-  # above without spawning a no-op runner when it is switched off.
-  build-linux-armv7:
-    name: Build linux-armv7
-    if: ${{ inputs.armv7 }}
-    runs-on: ubuntu-latest
-    env:
-      TARGET: armv7-unknown-linux-gnueabihf
-      ARTIFACT_SUFFIX: linux-armv7
-      CC_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-gcc
-      CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install cross toolchain
-        run: |
-          set -eu
-          sudo=
-          [ "$(id -u)" -eq 0 ] || sudo=sudo
-          $sudo apt-get update
-          $sudo apt-get install -y --no-install-recommends \
-            gcc-arm-linux-gnueabihf \
-            libc6-dev-armhf-cross
-
-      - name: Build release binary
-        uses: bbusse/github-workflows/.github/actions/rust-build@dev
-        with:
-          toolchain: ${{ inputs.rust_toolchain }}
-          target: ${{ env.TARGET }}
-          binary_name: ${{ inputs.binary_name }}
-          artifact_suffix: ${{ env.ARTIFACT_SUFFIX }}
-          working_directory: ${{ inputs.working_directory }}
-
-      - name: Upload build artifact
-        uses: bbusse/github-workflows/.github/actions/upload-artifact@dev
-        with:
-          name: ${{ inputs.artifact_name }}-${{ env.ARTIFACT_SUFFIX }}
-          path: ${{ inputs.working_directory }}/dist/${{ inputs.binary_name }}-${{ env.ARTIFACT_SUFFIX }}
 
   # rustup's prebuilt musl targets are missing a PIE-capable C runtime object,
   # so a rustup-installed toolchain can only link musl targets as plain static
@@ -223,7 +202,7 @@ jobs:
 
   build-macos-dmg:
     name: Build macOS DMG
-    if: ${{ inputs.dmg }}
+    if: ${{ inputs.dmg && inputs.enable_macos_build }}
     needs: build
     runs-on: macos-latest
     steps:
