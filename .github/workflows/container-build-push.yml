@@ -201,8 +201,12 @@ jobs:
           done <<EOF
           $OPTS
           EOF
-          name="$(docker buildx create --driver docker-container "$@" --use)"
+          name="buildx-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-$$"
           echo "BUILDX_BUILDER_NAME=$name" >>"$GITHUB_ENV"
+          # buildx refuses a builder on TLS settings that only exist in the
+          # environment. A context created from the default one carries them
+          docker context create "${name}-ctx"
+          docker buildx create --name "$name" --driver docker-container "$@" --use "${name}-ctx"
           # buildx gives a just started BuildKit a fixed 20s to answer, which a
           # loaded runner can miss. A retry finds it running and skips that wait
           docker buildx inspect --bootstrap || docker buildx inspect --bootstrap
@@ -304,7 +308,10 @@ jobs:
       # A self-hosted runner's docker outlives the job, the builder must not
       - name: Remove buildx builder
         if: ${{ always() && env.BUILDX_BUILDER_NAME != '' }}
-        run: docker buildx rm "$BUILDX_BUILDER_NAME"
+        run: |
+          set -u
+          docker buildx rm "$BUILDX_BUILDER_NAME" || true
+          docker context rm "${BUILDX_BUILDER_NAME}-ctx"
 
   merge:
     name: Assemble manifest list
