@@ -16,6 +16,16 @@ on:
         required: false
         default: stable
         type: string
+      build_tags:
+        description: Comma-separated build tags passed to go build -tags
+        required: false
+        default: ''
+        type: string
+      ldflags:
+        description: Flags passed to go build -ldflags, such as -s -w to strip
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -37,9 +47,11 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: 0
           ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          BUILD_TAGS: ${{ inputs.build_tags }}
+          LDFLAGS: ${{ inputs.ldflags }}
         run: |
           set -eu
-          go build -o "$ARTIFACT_NAME" .
+          go build -trimpath -tags "$BUILD_TAGS" -ldflags "$LDFLAGS" -o "$ARTIFACT_NAME" .
           file "$ARTIFACT_NAME"
           tar -cJf "${ARTIFACT_NAME}-freebsd-amd64.tar.xz" "$ARTIFACT_NAME"
 
