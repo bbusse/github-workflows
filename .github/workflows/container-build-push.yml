@@ -291,7 +291,9 @@ jobs:
           name: digests-${{ inputs.image_name }}${{ inputs.image_variant && format('-{0}', inputs.image_variant) || '' }}-${{ matrix.slug }}
           path: /tmp/digests/*
           if-no-files-found: error
-          retention-days: 1
+          # Forgejo truncates the days left to whole days, so 1 expires at
+          # once and a run past midnight loses its digests. 2 keeps one day
+          retention-days: 2
 
       - name: Run trivy image vulnerability scan
         if: ${{ needs.prepare.outputs.multi != 'true' && inputs.container_push_to_registry }}
